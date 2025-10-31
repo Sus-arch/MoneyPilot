@@ -43,13 +43,15 @@ services:
       - postgres
     volumes:
       - ../scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
+      - ../scripts/seed_data.sql:/docker-entrypoint-initdb.d/seed_data.sql:ro
+
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: balance
       POSTGRES_DB: finbalance
     # wait for postgres to be ready, then run the SQL file
     # use PGPASSWORD from env so psql does not prompt for a password
-    command: ["bash", "-c", "until pg_isready -h postgres -U postgres -d finbalance; do echo waiting for postgres; sleep 1; done; PGPASSWORD=\"$${POSTGRES_PASSWORD}\" psql -h postgres -U postgres -d \"$${POSTGRES_DB}\" -f /docker-entrypoint-initdb.d/init_db.sql"]
+    command: ["bash", "-c", "until pg_isready -h postgres -U postgres -d finbalance; do echo waiting for postgres; sleep 1; done; PGPASSWORD=\"$${POSTGRES_PASSWORD}\" psql -h postgres -U postgres -d \"$${POSTGRES_DB}\" -f /docker-entrypoint-initdb.d/init_db.sql && PGPASSWORD=\"$${POSTGRES_PASSWORD}\" psql -h postgres -U postgres -d \"$${POSTGRES_DB}\" -f /docker-entrypoint-initdb.d/seed_data.sql"]
     networks:
       - money_net
 
