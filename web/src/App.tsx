@@ -1,13 +1,27 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { Routes, Route, Navigate } from "react-router-dom";
+import Layout from "./components/Layout";
+import LoginPage from "./pages/LoginPage";
+import DashboardPage from "./pages/DashboardPage";
+import AccountsPage from "./pages/AccountsPage";
+import BanksPage from "./pages/BanksPage";
+import ProductsPage from "./pages/ProductsPage";
 
-const App = () => (
-  <div className="text-3xl font-bold text-blue-500">
-    Hello MoneyPilot!
-  </div>
-);
+export default function App() {
+  return (
+    <Routes>
+      {/* Редирект с / на /login */}
+      <Route path="/" element={<Navigate to="/login" />} />
 
-export default App;
+      {/* Login без layout */}
+      <Route path="/login" element={<LoginPage />} />
 
+      {/* Всё остальное внутри layout */}
+      <Route element={<Layout />}>
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/accounts" element={<AccountsPage />} />
+        <Route path="/banks" element={<BanksPage />} />
+        <Route path="/products" element={<ProductsPage />} />
+      </Route>
+    </Routes>
+  );
+}
