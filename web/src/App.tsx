@@ -5,7 +5,7 @@ import './App.css'
 
 const App = () => (
   <div className="text-3xl font-bold text-blue-500">
-    Hello Cashflow Puzzle!
+    Hello MoneyPilot!
   </div>
 );
 
