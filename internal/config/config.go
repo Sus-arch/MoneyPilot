@@ -12,6 +12,8 @@ type Config struct {
 	PostgresDSN  string
 	RedisAddr    string
 	MLServiceURL string
+	Login        string
+	Password     string
 }
 
 func Load() *Config {
@@ -22,6 +24,8 @@ func Load() *Config {
 		PostgresDSN:  getEnv("POSTGRES_DSN", "postgres://postgres:balance@localhost:5432/finbalance?sslmode=disable"),
 		RedisAddr:    getEnv("REDIS_ADDR", "localhost:6379"),
 		MLServiceURL: getEnv("ML_URL", "http://127.0.0.1:8000"),
+		Login:        getEnv("LOGIN_HAC", "team081"),
+		Password:     getEnv("PASSWORD_HAC", "ddslFory8voO3gxZ2CEaQnHzLfv4HVzo"),
 	}
 
 	log.Println("✅ Config loaded")
