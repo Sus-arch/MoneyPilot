@@ -16,6 +16,20 @@ services:
     networks:
       - money_net
 
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile.react
+    container_name: money-web
+    ports:
+      - "5173:5173"
+    env_file:
+      - ../.env
+    depends_on:
+      - api
+    networks:
+      - money_net
+
   postgres:
     image: postgres:16
     container_name: money-postgres
@@ -23,7 +37,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: balance
       POSTGRES_DB: finbalance
-
     ports:
       - "5432:5432"
     volumes:
@@ -43,13 +56,10 @@ services:
       - postgres
     volumes:
       - ../scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
-
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: balance
       POSTGRES_DB: finbalance
-    # wait for postgres to be ready, then run the SQL file
-    # use PGPASSWORD from env so psql does not prompt for a password
     command: ["bash", "-c", "until pg_isready -h postgres -U postgres -d finbalance; do echo waiting for postgres; sleep 1; done; PGPASSWORD=\"$${POSTGRES_PASSWORD}\" psql -h postgres -U postgres -d \"$${POSTGRES_DB}\" -f /docker-entrypoint-initdb.d/init_db.sql"]
     networks:
       - money_net

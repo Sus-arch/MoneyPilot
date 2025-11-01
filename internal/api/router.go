@@ -1,18 +1,25 @@
 package api
 
 import (
-	"MoneyPilot/internal/auth"
-	"database/sql"
+    "database/sql"
 
-	"github.com/gin-gonic/gin"
+    "github.com/gin-contrib/cors"
+    "github.com/gin-gonic/gin"
+
+    "MoneyPilot/internal/auth"
 )
 
 func NewRouter(db *sql.DB, jwtSecret string) *gin.Engine {
-	r := gin.Default()
+    r := gin.Default()
 
-	authService := auth.NewAuthService(db, jwtSecret)
-	authHandler := auth.NewHandler(authService)
-	r.POST("/api/auth/login", authHandler.Login)
+    // Разрешаем CORS для фронта
+    r.Use(cors.Default())
 
-	return r
+    authService := auth.NewAuthService(db, jwtSecret)
+    authHandler := auth.NewHandler(authService)
+
+    // Эндпоинты авторизации
+    r.POST("/api/auth/login", authHandler.Login)
+
+    return r
 }

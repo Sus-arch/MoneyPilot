@@ -5,7 +5,7 @@ export default function LoginPage() {
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [bank, setBank] = useState("VBank");
+  const [bank, setBank] = useState("vbank");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
