@@ -31,10 +31,14 @@ export default function BanksPage() {
     setMessage("");
 
     try {
+      // Тело запроса пустое, банк передаётся только в заголовке
       await post(
         "/account-consent",
-        { bank: bankId },
-        { Authorization: `Bearer ${token}` }
+        undefined,
+        {
+          Authorization: `Bearer ${token}`,
+          "X-Bank-Code": bankId,
+        }
       );
 
       setBanks((prev) =>
@@ -42,6 +46,7 @@ export default function BanksPage() {
       );
 
       setMessage(`✅ Банк ${bankId.toUpperCase()} успешно подключён`);
+      localStorage.setItem("connectedBank", bankId);
     } catch (err) {
       setMessage("❌ Ошибка при подключении банка");
     } finally {
@@ -57,8 +62,11 @@ export default function BanksPage() {
     try {
       await del(
         "/account-consent",
-        { bank: bankId },
-        { Authorization: `Bearer ${token}` }
+        undefined,
+        {
+          Authorization: `Bearer ${token}`,
+          "X-Bank-Code": bankId,
+        }
       );
 
       setBanks((prev) =>
@@ -66,6 +74,7 @@ export default function BanksPage() {
       );
 
       setMessage(`⚠️ Банк ${bankId.toUpperCase()} был отключён`);
+      localStorage.removeItem("connectedBank");
     } catch (err) {
       setMessage("❌ Ошибка при отключении банка");
     } finally {

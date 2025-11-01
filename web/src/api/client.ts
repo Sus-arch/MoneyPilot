@@ -8,58 +8,67 @@ function getToken(): string | null {
 // Тип для заголовков
 type Headers = Record<string, string>;
 
-// GET запрос с JWT
-export async function get<T = any>(url: string, headers: Headers = {}): Promise<T> {
+// Универсальная функция для сборки заголовков
+function buildHeaders(extraHeaders: Headers = {}): Headers {
   const token = getToken();
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...extraHeaders,
+  };
+}
+
+// ✅ GET запрос с JWT и опциональным X-Bank-Code
+export async function get<T = any>(url: string, headers: Headers = {}): Promise<T> {
   const res = await fetch(`${API_URL}/api${url}`, {
     method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...headers,
-    },
+    headers: buildHeaders(headers),
   });
 
   if (!res.ok) {
-    throw new Error(`GET ${url} failed with status ${res.status}`);
+    const text = await res.text();
+    throw new Error(`GET ${url} failed: ${res.status} ${text}`);
   }
 
   return res.json();
 }
 
-// POST запрос с JWT
-export async function post<T = any>(url: string, body?: any, headers: Headers = {}): Promise<T> {
-  const token = getToken();
+// ✅ POST запрос с JWT и опциональным X-Bank-Code
+export async function post<T = any>(
+  url: string,
+  body?: any,
+  headers: Headers = {}
+): Promise<T> {
   const res = await fetch(`${API_URL}/api${url}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...headers,
-    },
+    headers: buildHeaders(headers),
     body: JSON.stringify(body),
   });
 
   if (!res.ok) {
-    throw new Error(`POST ${url} failed with status ${res.status}`);
+    const text = await res.text();
+    throw new Error(`POST ${url} failed: ${res.status} ${text}`);
   }
 
   return res.json();
 }
 
-export async function del(url: string, body?: any, headers: Record<string, string> = {}) {
-  const response = await fetch(`${import.meta.env.VITE_API_URL}${url}`, {
+// ✅ DELETE запрос с JWT и опциональным X-Bank-Code
+export async function del(
+  url: string,
+  body?: any,
+  headers: Headers = {}
+): Promise<any> {
+  const res = await fetch(`${API_URL}/api${url}`, {
     method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
-    },
+    headers: buildHeaders(headers),
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  if (!response.ok) {
-    throw new Error(`Ошибка запроса DELETE ${url}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`DELETE ${url} failed: ${res.status} ${text}`);
   }
 
-  return response.json();
+  return res.json();
 }
