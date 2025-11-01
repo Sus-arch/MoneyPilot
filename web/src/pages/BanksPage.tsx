@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { post } from "../api/client";
+import { post, del } from "../api/client";
 
 interface Bank {
   id: string;
@@ -9,8 +9,8 @@ interface Bank {
 }
 
 const BANKS = [
-  { id: "vbank", name: "VBank" },
   { id: "abank", name: "ABank" },
+  { id: "vbank", name: "VBank" },
   { id: "sbank", name: "SBank" },
 ];
 
@@ -38,9 +38,7 @@ export default function BanksPage() {
       );
 
       setBanks((prev) =>
-        prev.map((b) =>
-          b.id === bankId ? { ...b, connected: true } : b
-        )
+        prev.map((b) => (b.id === bankId ? { ...b, connected: true } : b))
       );
 
       setMessage(`✅ Банк ${bankId.toUpperCase()} успешно подключён`);
@@ -51,30 +49,60 @@ export default function BanksPage() {
     }
   };
 
+  const disconnectBank = async (bankId: string) => {
+    if (!token) return;
+    setLoading(bankId);
+    setMessage("");
+
+    try {
+      await del(
+        "/account-consent",
+        { bank: bankId },
+        { Authorization: `Bearer ${token}` }
+      );
+
+      setBanks((prev) =>
+        prev.map((b) => (b.id === bankId ? { ...b, connected: false } : b))
+      );
+
+      setMessage(`⚠️ Банк ${bankId.toUpperCase()} был отключён`);
+    } catch (err) {
+      setMessage("❌ Ошибка при отключении банка");
+    } finally {
+      setLoading(null);
+    }
+  };
+
   return (
     <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-md p-8 mt-10">
       <h1 className="text-3xl font-bold text-center text-blue-700 mb-6">
-        Подключение банков
+        Управление банками
       </h1>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
         {banks.map((bank) => (
           <div
             key={bank.id}
-            className={`p-4 rounded-xl border ${
+            className={`p-4 rounded-xl border flex flex-col items-center justify-between ${
               bank.connected
                 ? "border-green-500 bg-green-50"
                 : "border-gray-300 bg-gray-50"
-            } flex flex-col items-center justify-between`}
+            }`}
           >
             <h2 className="text-xl font-semibold mb-2">{bank.name}</h2>
             {bank.connected ? (
-              <p className="text-green-600 font-medium">Подключен ✅</p>
+              <button
+                onClick={() => disconnectBank(bank.id)}
+                disabled={!!loading}
+                className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition disabled:bg-gray-400"
+              >
+                {loading === bank.id ? "Отключение..." : "Отключить"}
+              </button>
             ) : (
               <button
                 onClick={() => connectBank(bank.id)}
                 disabled={!!loading}
-                className="bg-blue-600 text-white font-medium py-2 px-4 rounded hover:bg-blue-700 transition disabled:bg-gray-400"
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition disabled:bg-gray-400"
               >
                 {loading === bank.id ? "Подключение..." : "Подключить"}
               </button>
