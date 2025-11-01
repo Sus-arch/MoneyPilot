@@ -9,13 +9,12 @@ import (
 
 func main() {
 	cfg := config.Load()
-
 	db := storage.NewPostgres(cfg.PostgresDSN)
 	redis := storage.NewRedis(cfg.RedisAddr)
 	defer db.Close()
 	defer redis.Close()
 
-	router := api.NewRouter()
+	router := api.NewRouter(db, "secret")
 	log.Printf("🚀 Server running on port %s\n", cfg.ServerPort)
 	router.Run(":" + cfg.ServerPort)
 }

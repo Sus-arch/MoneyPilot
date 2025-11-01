@@ -1,19 +1,18 @@
 package api
 
 import (
-	"MoneyPilot/internal/api/handlers"
+	"MoneyPilot/internal/auth"
+	"database/sql"
 
 	"github.com/gin-gonic/gin"
 )
 
-func NewRouter() *gin.Engine {
+func NewRouter(db *sql.DB, jwtSecret string) *gin.Engine {
 	r := gin.Default()
 
-	api := r.Group("/api")
-	{
-		api.GET("/health", handlers.HealthCheck)
-		api.GET("/example", handlers.Example)
-	}
+	authService := auth.NewAuthService(db, jwtSecret)
+	authHandler := auth.NewHandler(authService)
+	r.POST("/api/auth/login", authHandler.Login)
 
 	return r
 }
