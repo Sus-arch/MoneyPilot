@@ -38,7 +38,7 @@ export default function Layout() {
 
         {user && (
           <div className="flex items-center space-x-4">
-            <span className="font-medium">{user.name || user.id}</span>
+            <span className="font-medium">{user.id}</span>
             <button
               onClick={logout}
               className="px-3 py-1 bg-red-500 rounded hover:bg-red-600 transition"
