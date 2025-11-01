@@ -23,9 +23,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const { token } = response;
 
       localStorage.setItem("token", token);
+      localStorage.setItem("connectedBank", bank);
       setToken(token);
 
-      // Редирект после успешного логина
       navigate("/dashboard");
     } catch (err) {
       throw new Error("Ошибка авторизации");
@@ -34,6 +34,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = () => {
     localStorage.removeItem("token");
+    localStorage.removeItem("connectedBank");
     setToken(null);
     navigate("/login");
   };
