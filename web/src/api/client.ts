@@ -11,7 +11,7 @@ type Headers = Record<string, string>;
 // GET запрос с JWT
 export async function get<T = any>(url: string, headers: Headers = {}): Promise<T> {
   const token = getToken();
-  const res = await fetch(`${API_URL}${url}`, {
+  const res = await fetch(`${API_URL}/api${url}`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
@@ -30,7 +30,7 @@ export async function get<T = any>(url: string, headers: Headers = {}): Promise<
 // POST запрос с JWT
 export async function post<T = any>(url: string, body?: any, headers: Headers = {}): Promise<T> {
   const token = getToken();
-  const res = await fetch(`${API_URL}${url}`, {
+  const res = await fetch(`${API_URL}/api${url}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
