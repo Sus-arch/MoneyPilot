@@ -1,69 +1,126 @@
--- Users
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    is_premium BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT NOW()
-);
+-- ========================
+-- 💾 INIT_DB.SQL
+-- ========================
 
--- Banks (справочник)
+-- Очистка при пересоздании
+DROP TABLE IF EXISTS product_agreements, products, payments, payment_consents, account_consents, transactions, accounts, users, banks CASCADE;
+
+-- 🏦 Таблица банков
 CREATE TABLE banks (
     id SERIAL PRIMARY KEY,
-    code VARCHAR(32) UNIQUE NOT NULL,  -- vbank, smartbank, awesomebank
+    code VARCHAR(32) UNIQUE NOT NULL,  -- vbank, sbank, abank
     name VARCHAR(128) NOT NULL,
-    api_base_url TEXT NOT NULL
-);
-
--- Accounts
-CREATE TABLE accounts (
-    id SERIAL PRIMARY KEY,
-    bank_id INT REFERENCES banks(id) ON DELETE CASCADE,
-    user_id INT REFERENCES users(id) ON DELETE CASCADE,
-    account_number VARCHAR(64),
-    currency VARCHAR(16),
-    balance NUMERIC(18,2) DEFAULT 0,
-    rate NUMERIC(5,2),
+    api_base_url TEXT NOT NULL,
+    jwks_url TEXT,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Transactions
+-- 👤 Пользователи
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    client_id VARCHAR(64) NOT NULL,
+    bank_id INT REFERENCES banks(id) ON DELETE CASCADE,
+    email VARCHAR(255),
+    password_hash TEXT NOT NULL,
+    segment VARCHAR(32),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 💳 Счета
+CREATE TABLE accounts (
+    id SERIAL PRIMARY KEY,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    bank_id INT REFERENCES banks(id) ON DELETE CASCADE,
+    account_number VARCHAR(64) UNIQUE NOT NULL,
+    account_type VARCHAR(32) DEFAULT 'checking',
+    nickname VARCHAR(64),
+    currency VARCHAR(8) DEFAULT 'RUB',
+    balance NUMERIC(18,2) DEFAULT 0,
+    status VARCHAR(32) DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 📈 Транзакции
 CREATE TABLE transactions (
     id SERIAL PRIMARY KEY,
     account_id INT REFERENCES accounts(id) ON DELETE CASCADE,
     amount NUMERIC(18,2) NOT NULL,
-    currency VARCHAR(16),
+    currency VARCHAR(8),
     description TEXT,
     category VARCHAR(64),
-    date TIMESTAMP DEFAULT NOW()
+    booking_date TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Consents (OAuth-разрешения пользователя)
-CREATE TABLE consents (
+-- 🪪 Согласия (доступ к данным)
+CREATE TABLE account_consents (
     id SERIAL PRIMARY KEY,
+    consent_id VARCHAR(64) UNIQUE NOT NULL,
     user_id INT REFERENCES users(id) ON DELETE CASCADE,
     bank_id INT REFERENCES banks(id) ON DELETE CASCADE,
-    token TEXT NOT NULL,
-    expires_at TIMESTAMP NOT NULL,
+    requesting_bank VARCHAR(64),
+    permissions TEXT[],
+    status VARCHAR(32) DEFAULT 'approved',
+    expires_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Recommendations (от Python-сервиса)
-CREATE TABLE recommendations (
+-- 💸 Платежные согласия
+CREATE TABLE payment_consents (
     id SERIAL PRIMARY KEY,
-    user_id INT REFERENCES users(id) ON DELETE CASCADE,
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
-    benefit NUMERIC(10,2),
-    created_at TIMESTAMP DEFAULT NOW()
-);
-
--- Leads (заявки на продукты)
-CREATE TABLE leads (
-    id SERIAL PRIMARY KEY,
-    user_id INT REFERENCES users(id) ON DELETE CASCADE,
-    product_id VARCHAR(64),
+    consent_id VARCHAR(64) UNIQUE NOT NULL,
+    user_id INT REFERENCES users(id),
+    bank_id INT REFERENCES banks(id),
+    consent_type VARCHAR(32),
     amount NUMERIC(18,2),
-    status VARCHAR(32) DEFAULT 'pending',
+    debtor_account VARCHAR(64),
+    creditor_account VARCHAR(64),
+    valid_until TIMESTAMP,
+    status VARCHAR(32) DEFAULT 'active',
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- 💰 Платежи
+CREATE TABLE payments (
+    id SERIAL PRIMARY KEY,
+    payment_id VARCHAR(64) UNIQUE NOT NULL,
+    user_id INT REFERENCES users(id),
+    debtor_account VARCHAR(64),
+    creditor_account VARCHAR(64),
+    amount NUMERIC(18,2),
+    currency VARCHAR(8),
+    status VARCHAR(32) DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 🧩 Продукты
+CREATE TABLE products (
+    id SERIAL PRIMARY KEY,
+    product_id VARCHAR(64) UNIQUE NOT NULL,
+    bank_id INT REFERENCES banks(id),
+    product_type VARCHAR(32),
+    name VARCHAR(128),
+    description TEXT,
+    interest_rate NUMERIC(5,2),
+    min_amount NUMERIC(18,2),
+    max_amount NUMERIC(18,2),
+    term_months INT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- 📜 Договоры по продуктам
+CREATE TABLE product_agreements (
+    id SERIAL PRIMARY KEY,
+    agreement_id VARCHAR(64) UNIQUE NOT NULL,
+    user_id INT REFERENCES users(id),
+    product_id VARCHAR(64) REFERENCES products(product_id),
+    amount NUMERIC(18,2),
+    term_months INT,
+    status VARCHAR(32) DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_users_bank_id ON users(bank_id);
+CREATE INDEX idx_accounts_user_id ON accounts(user_id);
+CREATE INDEX idx_transactions_account_id ON transactions(account_id);

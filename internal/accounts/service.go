@@ -17,19 +17,19 @@ package accounts
 // 	var all []bankapi.Account
 
 // 	for _, bank := range bankapi.Banks {
-// 		// token, err := s.TokenSvc.GetValidToken(bank)
+// 		token, err := s.TokenSvc.GetValidToken(bank)
 // 		if err != nil {
 // 			log.Println("❌ Token error for bank", bank.Name, err)
 // 			continue
 // 		}
 
-// 		// accs, err := bank.GetAccounts(token.Token)
-// 		// if err != nil {
-// 		// 	log.Println("❌ Account fetch error for bank", bank.Name, err)
-// 		// 	continue
-// 		// }
+// 		accs, err := bank.GetAccounts(token.Token)
+// 		if err != nil {
+// 			log.Println("❌ Account fetch error for bank", bank.Name, err)
+// 			continue
+// 		}
 
-// 		// all = append(all, accs...)
+// 		all = append(all, accs...)
 // 	}
 
 // 	return all, nil

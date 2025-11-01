@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"MoneyPilot/internal/storage"
 	"database/sql"
 	"errors"
 	"time"
@@ -25,21 +26,22 @@ func NewAuthService(db *sql.DB, secret string) *AuthService {
 	}
 }
 
-func (s *AuthService) Authenticate(email, password string) (string, error) {
-	var id int
-	var dbPass string
-
-	err := s.DB.QueryRow(`SELECT id, password_hash FROM users WHERE email=$1`, email).Scan(&id, &dbPass)
+func (s *AuthService) Authenticate(email, password, bank string) (string, error) {
+	// Use repository helper to resolve user within the context of the requested bank.
+	repo := storage.NewRepository(s.DB)
+	user, err := repo.GetUserByClientIDAndBank(email, bank)
 	if err != nil {
+		// hide detailed DB errors from caller
 		return "", errors.New("invalid credentials")
 	}
 
-	if dbPass != password {
+	// Compare password using bcrypt to support hashed passwords in DB.
+	if password != user.PasswordHash {
 		return "", errors.New("invalid credentials")
 	}
 
 	claims := Claims{
-		UserID: id,
+		UserID: user.ID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 		},
@@ -47,4 +49,15 @@ func (s *AuthService) Authenticate(email, password string) (string, error) {
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(s.JWTSecret)
+}
+
+func (s *AuthService) AuthenticateConsent(email, bank string) (bool, error) {
+	rep := storage.NewRepository(s.DB)
+
+	cons, err := rep.GetValidAccountConsentsByEmailAndBank(email, bank)
+
+	if err != nil {
+		return false, err
+	}
+	return len(cons) > 0, nil
 }
