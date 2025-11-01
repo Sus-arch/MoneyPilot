@@ -46,3 +46,20 @@ export async function post<T = any>(url: string, body?: any, headers: Headers = 
 
   return res.json();
 }
+
+export async function del(url: string, body?: any, headers: Record<string, string> = {}) {
+  const response = await fetch(`${import.meta.env.VITE_API_URL}${url}`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+      ...headers,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Ошибка запроса DELETE ${url}`);
+  }
+
+  return response.json();
+}
