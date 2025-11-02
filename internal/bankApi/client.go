@@ -39,17 +39,19 @@ func (b *BankClient) GetToken() (*ActiveToken, error) {
 		return nil, fmt.Errorf("[%s] token request failed: %s", b.Name, string(body))
 	}
 
-	var body map[string]string
+	var body map[string]json.RawMessage
 	data, _ := io.ReadAll(resp.Body)
+	// log.Println(string(data))
 	if err := json.Unmarshal(data, &body); err != nil {
 		return nil, err
 	}
 
 	dateStr := resp.Header.Get("date")
 	expiry, _ := time.Parse(time.RFC1123, dateStr)
-
+	var token string
+	json.Unmarshal(body["access_token"], &token)
 	return &ActiveToken{
-		Token:     body["access_token"],
+		Token:     token,
 		ExpiresAt: expiry,
 	}, nil
 }
