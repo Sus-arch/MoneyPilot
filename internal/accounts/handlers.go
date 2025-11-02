@@ -1,24 +1,38 @@
 package accounts
 
-// import (
-// 	"net/http"
+import (
+	"net/http"
 
-// 	"github.com/gin-gonic/gin"
-// )
+	"github.com/gin-gonic/gin"
+)
 
-// type Handler struct {
-// 	Service *Service
-// }
+// Handler оборачивает сервис для работы с аккаунтами
+type Handler struct {
+	service *Service
+}
 
-// func NewHandler(s *Service) *Handler {
-// 	return &Handler{Service: s}
-// }
+// NewHandler конструктор
+func NewHandler(service *Service) *Handler {
+	return &Handler{service: service}
+}
 
-// func (h *Handler) GetAccounts(c *gin.Context) {
-// 	accs, err := h.Service.GetAllAccounts()
-// 	if err != nil {
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load accounts"})
-// 		return
-// 	}
-// 	c.JSON(http.StatusOK, gin.H{"accounts": accs})
-// }
+// ListAccounts — эндпоинт GET /api/accounts
+// Требует JWT (middleware добавляет user_id в контекст)
+func (h *Handler) ListAccounts(c *gin.Context) {
+	userID := c.GetInt("user_id")
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	accounts, err := h.service.FetchAllUserAccounts(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch accounts", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"total":    len(accounts),
+		"accounts": accounts,
+	})
+}

@@ -157,23 +157,56 @@ func (h *ConsentHandler) CreateConsent(c *gin.Context) {
 		return
 	}
 
-	// 10) Парсим ответ
+	// 10) Парсим ответ — банки возвращают разные формы (top-level consent_id/status OR data.consentId/data.status)
 	bankResp := make(map[string]json.RawMessage)
-	var consent_id string
+	var consentID string
+	var requestID string
 	var status string
-	var auto_approved bool
+	var autoApproved bool
 
 	if err := json.Unmarshal(respBody, &bankResp); err != nil {
 		log.Printf("warning: can't parse bank response: %v body=%s", err, string(respBody))
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Unmarshal failed", "details": err.Error()})
+		return
 	}
-	json.Unmarshal(bankResp["consent_id"], &consent_id)
-	json.Unmarshal(bankResp["status"], &status)
-	json.Unmarshal(bankResp["auto_approved"], &auto_approved)
 
-	// 11) Сохраняем согласие в БД (если банк вернул consent_id)
+	// Try top-level fields
+	json.Unmarshal(bankResp["consent_id"], &consentID)
+	json.Unmarshal(bankResp["consentId"], &consentID)
+	json.Unmarshal(bankResp["request_id"], &requestID)
+	json.Unmarshal(bankResp["requestId"], &requestID)
+	json.Unmarshal(bankResp["status"], &status)
+	json.Unmarshal(bankResp["auto_approved"], &autoApproved)
+
+	// If response wrapped in {"data": {...}}
+	if dataRaw, ok := bankResp["data"]; ok {
+		var dataMap map[string]json.RawMessage
+		if err := json.Unmarshal(dataRaw, &dataMap); err == nil {
+			json.Unmarshal(dataMap["consentId"], &consentID)
+			json.Unmarshal(dataMap["consent_id"], &consentID)
+			json.Unmarshal(dataMap["requestId"], &requestID)
+			json.Unmarshal(dataMap["request_id"], &requestID)
+			json.Unmarshal(dataMap["status"], &status)
+			// some banks use different status strings like AwaitingAuthorization
+		}
+	}
+
+	// Decide which id to persist: if status indicates approved -> use consentID (final), else use requestID
+	// Normalize status checks: treat approved/authorised/authorized as approved
+	normalized := strings.ToLower(status)
+	idToSave := ""
+	if consentID != "" && (strings.Contains(normalized, "approved") || strings.Contains(normalized, "authorised") || strings.Contains(normalized, "authorized")) {
+		idToSave = consentID
+	} else if requestID != "" {
+		idToSave = requestID
+	} else if consentID != "" {
+		// fallback to consentID even if status not explicitly approved
+		idToSave = consentID
+	}
+
+	// 11) Сохраняем согласие в БД
 	expiresAt := time.Now().Add(90 * 24 * time.Hour)
-	saveErr := h.Repo.SaveAccountConsentByClientIdAndBank(user.ClientID, bankCode, consent_id, "team081", []string{"ReadAccountsDetail", "ReadBalances"}, status, expiresAt)
+	saveErr := h.Repo.SaveAccountConsentByClientIdAndBank(user.ClientID, bankCode, idToSave, "team081", []string{"ReadAccountsDetail", "ReadBalances"}, status, expiresAt)
 	if saveErr != nil {
 		log.Printf("error saving consent: %v", saveErr)
 		// не скрываем ошибку от клиента: говорим 500, т.к. данные не сохранились
@@ -184,8 +217,141 @@ func (h *ConsentHandler) CreateConsent(c *gin.Context) {
 	// 12) Отдаём ответ клиенту
 	c.JSON(http.StatusOK, gin.H{
 		"status":        status,
-		"consent_id":    consent_id,
-		"auto_approved": auto_approved,
+		"consent_id":    idToSave,
+		"auto_approved": autoApproved,
 		"bank":          bankCode,
 	})
+}
+
+// StartPoller runs PollPendingConsents periodically in a background goroutine.
+// Callers should provide a stop channel which will stop the goroutine when closed.
+func (h *ConsentHandler) StartPoller(interval time.Duration, stopCh <-chan struct{}) {
+	log.Println("НАчало работы StartPoller")
+	ticker := time.NewTicker(interval)
+	go func() {
+		defer ticker.Stop()
+		log.Printf("consent poller started, interval=%s", interval)
+		for {
+			select {
+			case <-ticker.C:
+				h.PollPendingConsents()
+			case <-stopCh:
+				log.Println("consent poller stopping")
+				return
+			}
+		}
+	}()
+}
+
+// PollPendingConsents iterates over consents in DB with status='pending', queries the corresponding
+// bank's GET /account-consents/{consent_id} endpoint and updates the DB status to 'approved' when
+// the bank reports the consent as Authorised/Authorized.
+// This function is safe to call periodically (e.g. from a scheduler or a background goroutine).
+func (h *ConsentHandler) PollPendingConsents() {
+	consents, err := h.Repo.GetPendingAccountConsents()
+	if err != nil {
+		log.Printf("poll: failed to load pending consents: %v", err)
+		return
+	}
+
+	for _, c := range consents {
+		if c.BankCode == nil || *c.BankCode == "" {
+			log.Printf("poll: skipping consent %s: bank code missing", c.ConsentID)
+			continue
+		}
+
+		bankClient, ok := h.BankClients[*c.BankCode]
+		if !ok || bankClient == nil {
+			log.Printf("poll: unknown bank code for consent %s: %s", c.ConsentID, *c.BankCode)
+			continue
+		}
+
+		// Obtain bank token
+		tokenObj, tErr := h.TokenSvc.GetValidToken(bankClient)
+		if tErr != nil {
+			log.Printf("poll: failed to get token for bank %s: %v", *c.BankCode, tErr)
+			continue
+		}
+		if tokenObj == nil || tokenObj.Token == "" {
+			log.Printf("poll: empty token for bank %s", *c.BankCode)
+			continue
+		}
+
+		target := strings.TrimRight(bankClient.BaseURL, "/") + "/account-consents/" + c.ConsentID
+		req, err := http.NewRequest(http.MethodGet, target, nil)
+		if err != nil {
+			log.Printf("poll: failed to build request for %s: %v", c.ConsentID, err)
+			continue
+		}
+		req.Header.Set("Authorization", "Bearer "+tokenObj.Token)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Fapi-Interaction-Id", "team081")
+		// include interaction id header if we have requesting bank info
+		// if c.RequestingBank != nil && *c.RequestingBank != "" {
+		// 	req.Header.Set("X-Fapi-Interaction-Id", *c.RequestingBank)
+		// } else {
+		// 	req.Header.Set("X-Fapi-Interaction-Id", "team081")
+		// }
+
+		resp, err := h.HTTPClient.Do(req)
+		if err != nil {
+			log.Printf("poll: bank request failed for %s: %v", c.ConsentID, err)
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			log.Printf("poll: bank returned non-2xx for %s: %d body=%s", c.ConsentID, resp.StatusCode, string(body))
+			continue
+		}
+
+		var bankResp map[string]json.RawMessage
+		if err := json.Unmarshal(body, &bankResp); err != nil {
+			log.Printf("poll: unmarshal failed for %s: %v body=%s", c.ConsentID, err, string(body))
+			continue
+		}
+
+		// parse possible shapes: top-level status OR data.status
+		var status string
+		var got bool
+		if dataRaw, ok := bankResp["data"]; ok {
+			var dataMap map[string]json.RawMessage
+			if err := json.Unmarshal(dataRaw, &dataMap); err == nil {
+
+				if v, ok := dataMap["status"]; ok {
+					json.Unmarshal(v, &status)
+					got = true
+				}
+				log.Println(status)
+				// if bank returned a final consentId here, consider updating stored id
+				var finalConsentId string
+				json.Unmarshal(dataMap["consentId"], &finalConsentId)
+				if finalConsentId != "" && finalConsentId != c.ConsentID {
+					// update DB to use final consent id (best-effort)
+					if uErr := h.Repo.UpdateAccountConsentIDAndStatus(c.ConsentID, finalConsentId, "approved"); uErr != nil {
+						log.Printf("poll: failed to update DB for %s -> final %s: %v", c.ConsentID, finalConsentId, uErr)
+					} else {
+						log.Printf("poll: consent %s updated to approved (final id %s)", c.ConsentID, finalConsentId)
+					}
+					continue
+				}
+			}
+		}
+
+		if !got {
+			log.Printf("poll: consent %s no status found in response (body=%s)", c.ConsentID, string(body))
+			continue
+		}
+
+		if strings.EqualFold(status, "authorised") || strings.EqualFold(status, "authorized") {
+			if uErr := h.Repo.UpdateAccountConsentStatusByConsentID(c.ConsentID, "approved"); uErr != nil {
+				log.Printf("poll: failed to update DB for %s: %v", c.ConsentID, uErr)
+			} else {
+				log.Printf("poll: consent %s updated to approved", c.ConsentID)
+			}
+		} else {
+			log.Printf("poll: consent %s status=%s (no update)", c.ConsentID, status)
+		}
+	}
 }
