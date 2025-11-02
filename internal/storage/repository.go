@@ -179,3 +179,87 @@ func (r *Repository) GetValidAccountConsentsByEmailAndBank(email, bank string) (
 	}
 	return consents, nil
 }
+
+func (r *Repository) GetValidAccountConsentsByUserID(userID int) ([]AccountConsent, error) {
+	rows, err := r.DB.Query(`
+		SELECT 
+			ac.id,
+			ac.consent_id,
+			ac.user_id,
+			ac.bank_id,
+			b.code AS bank_code,
+			ac.requesting_bank,
+			ac.permissions,
+			ac.status,
+			ac.expires_at,
+			ac.created_at
+		FROM account_consents ac
+		LEFT JOIN banks b ON b.id = ac.bank_id
+		WHERE ac.user_id = $1
+		  AND (ac.expires_at IS NULL OR ac.expires_at > NOW())
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var consents []AccountConsent
+	for rows.Next() {
+		var c AccountConsent
+		if err := rows.Scan(
+			&c.ID,
+			&c.ConsentID,
+			&c.UserID,
+			&c.BankID,
+			&c.BankCode,
+			&c.RequestingBank,
+			pq.Array(&c.Permissions),
+			&c.Status,
+			&c.ExpiresAt,
+			&c.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		consents = append(consents, c)
+	}
+
+	return consents, nil
+}
+
+// GetPendingAccountConsents returns all consents in DB that are currently marked as 'pending'.
+// It includes the bank code (joined from banks table) so callers can route requests to the correct bank.
+func (r *Repository) GetPendingAccountConsents() ([]AccountConsent, error) {
+	rows, err := r.DB.Query(`
+		SELECT ac.id, ac.consent_id, ac.user_id, ac.bank_id, b.code AS bank_code, ac.requesting_bank, ac.permissions, ac.status, ac.expires_at, ac.created_at
+		FROM account_consents ac
+		LEFT JOIN banks b ON b.id = ac.bank_id
+		WHERE ac.status = $1
+	`, "pending")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var consents []AccountConsent
+	for rows.Next() {
+		var c AccountConsent
+		if err := rows.Scan(&c.ID, &c.ConsentID, &c.UserID, &c.BankID, &c.BankCode, &c.RequestingBank, pq.Array(&c.Permissions), &c.Status, &c.ExpiresAt, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		consents = append(consents, c)
+	}
+	return consents, nil
+}
+
+// UpdateAccountConsentStatusByConsentID updates the status of an account_consent row identified by consent_id.
+func (r *Repository) UpdateAccountConsentStatusByConsentID(consentID string, status string) error {
+	_, err := r.DB.Exec(`UPDATE account_consents SET status=$1 WHERE consent_id=$2`, status, consentID)
+	return err
+}
+
+// UpdateAccountConsentIDAndStatus replaces the consent_id for a row and updates its status.
+// This is used when a bank first returned a temporary request id and later provides a final consent id.
+func (r *Repository) UpdateAccountConsentIDAndStatus(oldConsentID, newConsentID, status string) error {
+	_, err := r.DB.Exec(`UPDATE account_consents SET consent_id=$1, status=$2 WHERE consent_id=$3`, newConsentID, status, oldConsentID)
+	return err
+}

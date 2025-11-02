@@ -2,12 +2,14 @@ package api
 
 import (
 	"database/sql"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 
 	"MoneyPilot/internal/accountconsents"
+	"MoneyPilot/internal/accounts"
 	"MoneyPilot/internal/auth"
 	bankapi "MoneyPilot/internal/bankapi"
 	"MoneyPilot/internal/storage"
@@ -15,26 +17,30 @@ import (
 
 func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	r := gin.Default()
-
-	// Разрешаем CORS для фронта
 	r.Use(cors.Default())
+
+	repo := storage.NewRepository(db)
+	ts := bankapi.NewTokenService(rdb)
 
 	authService := auth.NewAuthService(db, jwtSecret)
 	authHandler := auth.NewHandler(authService)
-
-	// Эндпоинты авторизации
 	r.POST("/api/auth/login", authHandler.Login)
 
 	apiGroup := r.Group("/api")
-
-	// secured routes require user JWT
 	secured := apiGroup.Group("")
 	secured.Use(auth.DecodeToken([]byte(jwtSecret)))
 
-	// consents handler uses storage repository and proxies requests to banks
-	repo := storage.NewRepository(db)
-	ts := bankapi.NewTokenService(rdb)
+	// --- handlers ---
 	consentHandler := accountconsents.NewConsentHandler(repo, ts, bankapi.Banks)
+	accountService := accounts.NewService(repo, ts, bankapi.Banks)
+	accountHandler := accounts.NewHandler(accountService)
+	stopCh := make(chan struct{})
+
+	// запускаем poller с интервалом 5 секунд
+	consentHandler.StartPoller(5*time.Second, stopCh)
+	// --- routes ---
 	secured.POST("/account-consent", consentHandler.CreateConsent)
+	secured.GET("/accounts", accountHandler.ListAccounts)
+
 	return r
 }
