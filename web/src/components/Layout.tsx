@@ -6,10 +6,10 @@ export default function Layout() {
   const { token, logout } = useAuth(); // теперь получаем token
 
   const navItems = [
-    { path: "/dashboard", label: "Dashboard" },
-    { path: "/accounts", label: "Accounts" },
-    { path: "/banks", label: "Banks" },
-    { path: "/products", label: "Products" },
+    { path: "/dashboard", label: "Дашборд" },
+    { path: "/accounts", label: "Счета" },
+    { path: "/banks", label: "Банки" },
+    { path: "/products", label: "Продукты" },
   ];
 
   return (
@@ -43,7 +43,7 @@ export default function Layout() {
               onClick={logout}
               className="px-3 py-1 bg-red-500 rounded hover:bg-red-600 transition"
             >
-              Logout
+              Выход
             </button>
           </div>
         )}
