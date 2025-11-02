@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"errors"
+	"log"
 	"time"
 
 	"github.com/lib/pq"
@@ -36,6 +37,16 @@ func (r *Repository) GetBankByCode(code string) (*Bank, error) {
 	return &b, nil
 }
 
+func (r *Repository) GetUserByID(id int) (*User, error) {
+	var b User
+	err := r.DB.QueryRow(`SELECT id, client_id, bank_id, email, password_hash, segment, created_at FROM users WHERE id=$1`, id).
+		Scan(&b.ID, &b.ClientID, &b.BankID, &b.Email, &b.PasswordHash, &b.Segment, &b.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
 // GetUserByClientIDAndBank returns a user by client_id and optional bank code.
 // If bankCode is empty, it returns the user matching client_id regardless of bank.
 // If bankCode is provided, it returns a user whose client_id matches and whose bank_id is either NULL (global) or matches the bank's id.
@@ -60,6 +71,7 @@ func (r *Repository) GetUserByClientIDAndBank(clientID, bankCode string) (*User,
 	err := r.DB.QueryRow(`SELECT id, client_id, bank_id, email, password_hash, segment, created_at FROM users WHERE client_id=$1 AND (bank_id IS NULL OR bank_id=$2)`, clientID, bankID).
 		Scan(&u.ID, &u.ClientID, &u.BankID, &u.Email, &u.PasswordHash, &u.Segment, &u.CreatedAt)
 	if err != nil {
+		log.Println(err.Error())
 		return nil, err
 	}
 	return &u, nil
@@ -67,7 +79,7 @@ func (r *Repository) GetUserByClientIDAndBank(clientID, bankCode string) (*User,
 
 // SaveAccountConsentByEmailAndBank inserts an account_consents row by resolving user and bank
 // from human-friendly values (email and bank code). This avoids requiring caller to know DB ids.
-func (r *Repository) SaveAccountConsentByEmailAndBank(email, bankCode, consentID, requestingBank string, permissions []string, status string, expires time.Time) error {
+func (r *Repository) SaveAccountConsentByClientIdAndBank(client_id, bankCode, consentID, requestingBank string, permissions []string, status string, expires time.Time) error {
 	tx, err := r.DB.Begin()
 	if err != nil {
 		return err
@@ -75,7 +87,7 @@ func (r *Repository) SaveAccountConsentByEmailAndBank(email, bankCode, consentID
 	defer tx.Rollback()
 
 	var userID int
-	if err := tx.QueryRow(`SELECT id FROM users WHERE email=$1`, email).Scan(&userID); err != nil {
+	if err := tx.QueryRow(`SELECT id FROM users WHERE client_id=$1`, client_id).Scan(&userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return errors.New("user not found")
 		}

@@ -30,6 +30,7 @@ func (s *AuthService) Authenticate(email, password, bank string) (string, error)
 	// Use repository helper to resolve user within the context of the requested bank.
 	repo := storage.NewRepository(s.DB)
 	user, err := repo.GetUserByClientIDAndBank(email, bank)
+	// log.Println(user)
 	if err != nil {
 		// hide detailed DB errors from caller
 		return "", errors.New("invalid credentials")

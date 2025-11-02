@@ -3,8 +3,8 @@ package bankapi
 import "time"
 
 type ActiveToken struct {
-	Token     string
-	ExpiresAt time.Time
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 type Account struct {

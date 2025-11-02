@@ -32,7 +32,6 @@ func (s *TokenService) GetValidToken(bank *BankClient) (*ActiveToken, error) {
 			return &token, nil
 		}
 	}
-
 	// Иначе — запрашиваем новый
 	token, err := bank.GetToken()
 	if err != nil {
