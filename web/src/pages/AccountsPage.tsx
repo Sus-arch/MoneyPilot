@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useAuth } from "../context/AuthContext";
+import { get } from "../api/client";
 
 interface Account {
-  accountId: string;
+  account_id: string;
   nickname: string;
   status: string;
   currency: string;
@@ -9,35 +11,93 @@ interface Account {
 }
 
 interface AccountDetail {
-  accountId: string;
-  accountType: string;
-  accountSubType: string;
+  account_id: string;
+  account_type: string;
+  account_subtype: string;
   description?: string;
-  openingDate: string;
+  opening_date: string;
   balance?: {
     amount: string;
     currency: string;
+    type: string;
+    creditDebitIndicator: string;
+    dateTime: string;
   }[];
 }
 
-// Мок-данные
-const MOCK_ACCOUNTS: Account[] = [
-  { accountId: "acc-1901", nickname: "Checking счет", status: "Enabled", currency: "RUB", bank: "VBank" },
-  { accountId: "acc-1905", nickname: "Checking счет", status: "Enabled", currency: "RUB", bank: "VBank" },
-  { accountId: "acc-1902", nickname: "Savings счет", status: "Enabled", currency: "USD", bank: "ABank" },
-  { accountId: "acc-1903", nickname: "Investment счет", status: "Disabled", currency: "EUR", bank: "SBank" },
-];
-
-const MOCK_ACCOUNT_DETAILS: Record<string, AccountDetail> = {
-  "acc-1901": { accountId: "acc-1901", accountType: "Personal", accountSubType: "Checking", description: "Тестовый checking account", openingDate: "2024-10-30", balance: [{ amount: "94691.80", currency: "RUB" }, { amount: "500.00", currency: "USD" }] },
-  "acc-1905": { accountId: "acc-1905", accountType: "Personal", accountSubType: "Checking", description: "Тестовый checking account", openingDate: "2024-10-30", balance: [{ amount: "94691.80", currency: "RUB" }, { amount: "500.00", currency: "USD" }] },
-  "acc-1902": { accountId: "acc-1902", accountType: "Personal", accountSubType: "Savings", openingDate: "2024-11-01", balance: [{ amount: "1200.50", currency: "USD" }] },
-  "acc-1903": { accountId: "acc-1903", accountType: "Investment", accountSubType: "Brokerage", openingDate: "2025-01-15", balance: [{ amount: "10000.00", currency: "EUR" }] },
-};
-
-export default function AccountsPageModal() {
-  const [accounts] = useState<Account[]>(MOCK_ACCOUNTS);
+export default function AccountsPage() {
+  const { token, currentBank, bankTokens } = useAuth();
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<AccountDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [error, setError] = useState("");
+
+  // Получаем список счетов
+  const fetchAccounts = async () => {
+    if (!token || !currentBank || !bankTokens[currentBank]) return;
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await get("/accounts", {
+        Authorization: `Bearer ${bankTokens[currentBank]}`,
+      });
+
+      setAccounts(res.accounts || []);
+    } catch {
+      setError("Не удалось получить список счетов");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAccounts();
+  }, [token, currentBank, bankTokens]);
+
+  // Получаем детали и баланс выбранного счёта
+  const handleSelectAccount = async (account: Account) => {
+    if (!token || !bankTokens[account.bank]) return;
+    setLoadingDetails(true);
+    setError("");
+    setSelectedAccount(null);
+
+    try {
+      const [detailsRes, balanceRes] = await Promise.all([
+        get(`/accounts/${account.account_id}/details`, {
+          Authorization: `Bearer ${bankTokens[account.bank]}`,
+          "X-Bank-Code": account.bank.toLowerCase(),
+        }),
+        get(`/accounts/${account.account_id}/balances`, {
+          Authorization: `Bearer ${bankTokens[account.bank]}`,
+          "X-Bank-Code": account.bank.toLowerCase(),
+        }),
+      ]);
+
+      const details = detailsRes.data.account[0]; // поправка под структуру API
+      const balances = (balanceRes.data?.balance || []).map((b: any) => ({
+        amount: b.amount.amount,
+        currency: b.amount.currency,
+        type: b.type,
+        creditDebitIndicator: b.creditDebitIndicator,
+        dateTime: b.dateTime,
+      }));
+
+      setSelectedAccount({
+        account_id: details.accountId,
+        account_type: details.accountType,
+        account_subtype: details.accountSubType,
+        description: details.description,
+        opening_date: details.openingDate,
+        balance: balances,
+      });
+    } catch {
+      setError("Не удалось получить данные по счёту");
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
 
   const groupedAccounts = accounts.reduce<Record<string, Account[]>>((acc, curr) => {
     acc[curr.bank] = acc[curr.bank] || [];
@@ -47,7 +107,10 @@ export default function AccountsPageModal() {
 
   return (
     <div className="max-w-5xl mx-auto p-8">
-      <h1 className="text-3xl font-bold text-blue-700 mb-6">Счета (тестовые данные)</h1>
+      <h1 className="text-3xl font-bold text-blue-700 mb-6">Счета</h1>
+
+      {loading && <p className="text-center text-gray-700">Загрузка счетов...</p>}
+      {error && <p className="text-center text-red-500">{error}</p>}
 
       {Object.keys(groupedAccounts).map((bank) => (
         <div key={bank} className="mb-6">
@@ -55,9 +118,9 @@ export default function AccountsPageModal() {
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {groupedAccounts[bank].map((acc) => (
               <div
-                key={acc.accountId}
+                key={acc.account_id}
                 className="p-4 border rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer shadow-sm transition"
-                onClick={() => setSelectedAccount(MOCK_ACCOUNT_DETAILS[acc.accountId])}
+                onClick={() => handleSelectAccount(acc)}
               >
                 <p className="font-semibold text-lg">{acc.nickname}</p>
                 <p className="text-gray-600">{acc.status} • {acc.currency}</p>
@@ -77,17 +140,22 @@ export default function AccountsPageModal() {
               &times;
             </button>
 
-            <h2 className="text-2xl font-bold text-blue-700 mb-4">{selectedAccount.accountId}</h2>
+            <h2 className="text-2xl font-bold text-blue-700 mb-4">{selectedAccount.account_id}</h2>
             <div className="space-y-2 text-gray-700">
-              <p><span className="font-semibold">Тип:</span> {selectedAccount.accountType}</p>
-              <p><span className="font-semibold">Подтип:</span> {selectedAccount.accountSubType}</p>
+              <p><span className="font-semibold">Тип:</span> {selectedAccount.account_type}</p>
+              <p><span className="font-semibold">Подтип:</span> {selectedAccount.account_subtype}</p>
               {selectedAccount.description && <p><span className="font-semibold">Описание:</span> {selectedAccount.description}</p>}
-              <p><span className="font-semibold">Дата открытия:</span> {selectedAccount.openingDate}</p>
+              <p><span className="font-semibold">Дата открытия:</span> {selectedAccount.opening_date}</p>
+
+              {loadingDetails && <p>Загрузка баланса...</p>}
+
               {selectedAccount.balance && (
                 <div className="mt-2">
                   <p className="font-semibold">Баланс:</p>
                   {selectedAccount.balance.map((b, i) => (
-                    <p key={i}>{b.amount} {b.currency}</p>
+                    <p key={i}>
+                      {b.amount} {b.currency} ({b.creditDebitIndicator}, {b.type})
+                    </p>
                   ))}
                 </div>
               )}
