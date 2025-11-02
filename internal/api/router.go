@@ -17,8 +17,18 @@ import (
 
 func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	r := gin.Default()
-	r.Use(cors.Default())
 
+	// --- Настройка CORS ---
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:5173"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Bank-Code"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
+
+	// --- Сервисы и хендлеры ---
 	repo := storage.NewRepository(db)
 	ts := bankapi.NewTokenService(rdb)
 
@@ -30,18 +40,17 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	secured := apiGroup.Group("")
 	secured.Use(auth.DecodeToken([]byte(jwtSecret)))
 
-	// --- handlers ---
 	consentHandler := accountconsents.NewConsentHandler(repo, ts, bankapi.Banks)
 	accountService := accounts.NewService(repo, ts, bankapi.Banks)
 	accountHandler := accounts.NewHandler(accountService)
-	stopCh := make(chan struct{})
 
-	// запускаем poller с интервалом 5 секунд
+	// --- Запускаем poller согласий ---
+	stopCh := make(chan struct{})
 	consentHandler.StartPoller(5*time.Second, stopCh)
-	// --- routes ---
+
+	// --- Маршруты ---
 	secured.POST("/account-consent", consentHandler.CreateConsent)
 	secured.GET("/accounts", accountHandler.ListAccounts)
-
 	secured.GET("/accounts/:account_id/balances", accountHandler.GetAccountBalance)
 	secured.GET("/accounts/:account_id/transactions", accountHandler.GetAccountTransactions)
 	secured.GET("/accounts/:account_id/details", accountHandler.GetAccountDetails)

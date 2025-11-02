@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import { motion, AnimatePresence } from "framer-motion";
+import { get } from "../api/client";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -8,84 +10,150 @@ export default function LoginPage() {
   const [bank, setBank] = useState("vbank");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [open, setOpen] = useState(false);
+  const [waiting, setWaiting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setWaiting(false);
 
     try {
-      await login(email, password, bank);
-    } catch (err) {
+      const status = await login(email, password, bank);
+
+      // если банк sbank, показываем сообщение и ждём согласие
+      if (status === "waiting") {
+        setWaiting(true);
+
+        // каждые 5 сек опрашиваем /accounts
+        const poll = setInterval(async () => {
+          try {
+            const res = await get("/accounts");
+            if (res.accounts && res.accounts.length > 0) {
+              clearInterval(poll);
+              window.location.href = "/dashboard";
+            }
+          } catch {
+            // продолжаем ожидание
+          }
+        }, 10000);
+      }
+    } catch {
       setError("Ошибка авторизации. Проверьте данные.");
     } finally {
-      setLoading(false);
+      if (!waiting) setLoading(false);
     }
   };
 
+  const banks = [
+    { code: "vbank", name: "VBank" },
+    { code: "abank", name: "ABank" },
+    { code: "sbank", name: "SBank" },
+  ];
+
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-100 to-blue-300">
-      <div className="bg-white shadow-lg rounded-2xl p-8 w-full max-w-md">
-        <h1 className="text-3xl font-bold text-center text-blue-700 mb-6">
+    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-800 to-blue-500">
+      <div className="bg-white/10 backdrop-blur-lg shadow-lg rounded-2xl p-8 w-full max-w-md border border-white/20">
+        <h1 className="text-3xl font-bold text-center text-white mb-6">
           Авторизация в MoneyPilot
         </h1>
 
-        <p className="text-gray-600 text-center mb-6">
+        <p className="text-blue-100 text-center mb-6">
           Введите логин, пароль и выберите ваш банк.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-medium text-blue-100">
               Логин
             </label>
             <input
               type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring focus:ring-blue-300"
+              className="mt-1 w-full bg-white/20 text-white border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring focus:ring-blue-300 placeholder-blue-200"
               placeholder="team200-1"
               required
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-medium text-blue-100">
               Пароль
             </label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring focus:ring-blue-300"
+              className="mt-1 w-full bg-white/20 text-white border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring focus:ring-blue-300 placeholder-blue-200"
               placeholder="••••••••"
               required
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">
+          {/* 👇 Красивый кастомный выпадающий список */}
+          <div className="relative">
+            <label className="block text-sm font-medium text-blue-100 mb-1">
               Банк
             </label>
-            <select
-              value={bank}
-              onChange={(e) => setBank(e.target.value)}
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring focus:ring-blue-300"
+            <button
+              type="button"
+              onClick={() => setOpen(!open)}
+              className="w-full flex justify-between items-center bg-white/20 text-white border border-blue-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 hover:bg-white/30 transition-all duration-200"
             >
-              <option value="vbank">VBank</option>
-              <option value="abank">ABank</option>
-              <option value="sbank">SBank</option>
-            </select>
+              {banks.find((b) => b.code === bank)?.name || "Выберите банк"}
+              <span className="text-blue-200 ml-2">{open ? "▲" : "▼"}</span>
+            </button>
+
+            <AnimatePresence>
+              {open && (
+                <motion.ul
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.2 }}
+                  className="absolute z-10 mt-2 w-full bg-white/30 backdrop-blur-xl border border-blue-200 rounded-xl shadow-xl overflow-hidden"
+                >
+                  {banks.map((b) => (
+                    <li
+                      key={b.code}
+                      onClick={() => {
+                        setBank(b.code);
+                        setOpen(false);
+                      }}
+                      className={`px-4 py-2 text-white cursor-pointer hover:bg-blue-600/40 transition ${
+                        b.code === bank ? "bg-blue-600/40 font-semibold" : ""
+                      }`}
+                    >
+                      {b.name}
+                    </li>
+                  ))}
+                </motion.ul>
+              )}
+            </AnimatePresence>
           </div>
 
-          {error && <p className="text-red-500 text-center">{error}</p>}
+          {/* Ошибка */}
+          {error && <p className="text-red-400 text-center">{error}</p>}
+
+          {/* ⚠️ Сообщение об ожидании подтверждения */}
+          {waiting && (
+            <p className="text-yellow-300 text-center font-medium animate-pulse">
+              ⚠️ Подтвердите согласие в приложении банка SBank, затем вы будете перенаправлены.
+            </p>
+          )}
 
           <button
             type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white font-semibold py-2 rounded-lg hover:bg-blue-700 transition"
+            disabled={loading || waiting}
+            className="w-full bg-blue-600 text-white font-semibold py-2 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-400"
           >
-            {loading ? "Вход..." : "Войти"}
+            {waiting
+              ? "Ожидание подтверждения..."
+              : loading
+              ? "Вход..."
+              : "Войти"}
           </button>
         </form>
       </div>
