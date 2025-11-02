@@ -42,5 +42,9 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	secured.POST("/account-consent", consentHandler.CreateConsent)
 	secured.GET("/accounts", accountHandler.ListAccounts)
 
+	secured.GET("/accounts/:account_id/balances", accountHandler.GetAccountBalance)
+	secured.GET("/accounts/:account_id/transactions", accountHandler.GetAccountTransactions)
+	secured.GET("/accounts/:account_id/details", accountHandler.GetAccountDetails)
+
 	return r
 }

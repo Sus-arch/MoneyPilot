@@ -180,6 +180,53 @@ func (r *Repository) GetValidAccountConsentsByEmailAndBank(email, bank string) (
 	return consents, nil
 }
 
+func (r *Repository) GetValidAccountConsentsByUserIDAndBank(userID int, bankcode string) ([]AccountConsent, error) {
+	user, _ := r.GetUserByID(userID)
+	rows, err := r.DB.Query(`
+		SELECT 
+			ac.id,
+			ac.consent_id,
+			ac.user_id,
+			ac.bank_id,
+			b.code AS bank_code,
+			ac.requesting_bank,
+			ac.permissions,
+			ac.status,
+			ac.expires_at,
+			ac.created_at
+		FROM account_consents ac
+		LEFT JOIN banks b ON b.id = ac.bank_id
+		WHERE ac.user_id IN (SELECT id FROM users WHERE client_id=$1) AND b.code=$2
+		  AND (ac.expires_at IS NULL OR ac.expires_at > NOW())
+	`, user.ClientID, bankcode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var consents []AccountConsent
+	for rows.Next() {
+		var c AccountConsent
+		if err := rows.Scan(
+			&c.ID,
+			&c.ConsentID,
+			&c.UserID,
+			&c.BankID,
+			&c.BankCode,
+			&c.RequestingBank,
+			pq.Array(&c.Permissions),
+			&c.Status,
+			&c.ExpiresAt,
+			&c.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		consents = append(consents, c)
+	}
+
+	return consents, nil
+}
+
 func (r *Repository) GetValidAccountConsentsByUserID(userID int) ([]AccountConsent, error) {
 	user, _ := r.GetUserByID(userID)
 	rows, err := r.DB.Query(`

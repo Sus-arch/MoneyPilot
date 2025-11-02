@@ -206,7 +206,7 @@ func (h *ConsentHandler) CreateConsent(c *gin.Context) {
 
 	// 11) Сохраняем согласие в БД
 	expiresAt := time.Now().Add(90 * 24 * time.Hour)
-	saveErr := h.Repo.SaveAccountConsentByClientIdAndBank(user.ClientID, bankCode, idToSave, "team081", []string{"ReadAccountsDetail", "ReadBalances"}, status, expiresAt)
+	saveErr := h.Repo.SaveAccountConsentByClientIdAndBank(user.ClientID, bankCode, idToSave, "team081", []string{"ReadAccountsDetail", "ReadBalances", "ReadTransactionsDetail"}, status, expiresAt)
 	if saveErr != nil {
 		log.Printf("error saving consent: %v", saveErr)
 		// не скрываем ошибку от клиента: говорим 500, т.к. данные не сохранились
