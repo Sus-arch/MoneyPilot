@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
-import { post, del } from "../api/client";
+import { get, post, del } from "../api/client";
 
 interface Bank {
   id: string;
@@ -17,15 +17,37 @@ const BANKS = [
 export default function BanksPage() {
   const { currentBank, bankTokens, saveBankToken } = useAuth();
   const [banks, setBanks] = useState<Bank[]>(
-    BANKS.map((b) => ({
-      ...b,
-      connected: !!bankTokens[b.id],
-    }))
+    BANKS.map((b) => ({ ...b, connected: !!bankTokens[b.id] }))
   );
   const [loading, setLoading] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [showLogin, setShowLogin] = useState<string | null>(null);
   const [credentials, setCredentials] = useState({ email: "", password: "" });
+
+  // Функция для получения всех счетов текущим токеном
+  const fetchAccounts = async () => {
+    if (!currentBank) return;
+    const token = bankTokens[currentBank];
+    if (!token) return;
+
+    try {
+      const res = await get("/accounts", { Authorization: `Bearer ${token}` });
+
+      // Обновляем connected для всех банков
+      setBanks((prev) =>
+        prev.map((b) => ({
+          ...b,
+          connected: res.accounts?.some((a: any) => a.bank === b.id) || false,
+        }))
+      );
+    } catch {
+
+    }
+  };
+
+  useEffect(() => {
+    fetchAccounts();
+  }, [currentBank, bankTokens]);
 
   const handleConnect = async (bankId: string) => {
     setShowLogin(bankId);
@@ -36,7 +58,7 @@ export default function BanksPage() {
     setMessage("");
 
     try {
-      // логинимся и получаем новый JWT
+      // логинимся и получаем JWT
       const response = await post("/auth/login", {
         email: credentials.email,
         password: credentials.password,
@@ -49,22 +71,49 @@ export default function BanksPage() {
       // сохраняем токен
       saveBankToken(bankId, newJwt);
 
-      // создаём согласие с этим JWT
-      await post("/account-consent", undefined, {
-        "X-Bank-Code": bankId,
-        Authorization: `Bearer ${newJwt}`,
-      });
+      // создаём согласие
+      const consentResponse = await post(
+        "/account-consent",
+        undefined,
+        { "X-Bank-Code": bankId, Authorization: `Bearer ${newJwt}` }
+      );
 
-      // обновляем UI
+      if (consentResponse.auto_approved) {
+  setMessage(`✅ Банк ${bankId.toUpperCase()} успешно подключён`);
+  await fetchAccounts(); // обновляем accounts сразу
+  setLoading(null);
+} else {
+  // ручное подтверждение
+  setMessage(
+    `⚠️ Для банка ${bankId.toUpperCase()} необходимо подтвердить согласие в приложении банка. Ожидание...`
+  );
+
+  const poll = setInterval(async () => {
+  try {
+    const res = await get("/accounts", { Authorization: `Bearer ${newJwt}` });
+
+    const bankConnected = res.accounts?.some((a: any) => a.bank === bankId);
+    if (bankConnected) {
+      clearInterval(poll);
       setBanks((prev) =>
         prev.map((b) => (b.id === bankId ? { ...b, connected: true } : b))
       );
-
-      setMessage(`✅ Банк ${bankId.toUpperCase()} успешно подключён`);
-    } catch (err) {
-      setMessage("❌ Ошибка при подключении банка");
-    } finally {
+      setMessage(
+        `✅ Согласие для ${bankId.toUpperCase()} подтверждено и банк подключён`
+      );
       setLoading(null);
+    }
+  } catch {
+    // ждём дальше
+  }
+}, 10000);
+
+}
+
+    } catch {
+      setMessage("❌ Ошибка при подключении банка");
+      setLoading(null);
+    } finally {
       setShowLogin(null);
     }
   };
@@ -87,6 +136,7 @@ export default function BanksPage() {
       );
 
       setMessage(`⚠️ Согласие для ${bankId.toUpperCase()} отозвано`);
+      await fetchAccounts();
     } catch {
       setMessage("❌ Ошибка при отзыве согласия");
     } finally {
@@ -136,50 +186,49 @@ export default function BanksPage() {
       </div>
 
       {showLogin && (
-  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-    <div className="bg-gray-800 p-6 rounded-xl shadow-lg w-96 text-white">
-      <h2 className="text-xl font-bold mb-4">
-        Вход в {showLogin.toUpperCase()}
-      </h2>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-gray-800 p-6 rounded-xl shadow-lg w-96 text-white">
+            <h2 className="text-xl font-bold mb-4">
+              Вход в {showLogin.toUpperCase()}
+            </h2>
 
-      <input
-        type="text"
-        placeholder="Логин"
-        value={credentials.email}
-        onChange={(e) =>
-          setCredentials({ ...credentials, email: e.target.value })
-        }
-        className="border border-gray-600 w-full mb-3 px-3 py-2 rounded bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
+            <input
+              type="text"
+              placeholder="Логин"
+              value={credentials.email}
+              onChange={(e) =>
+                setCredentials({ ...credentials, email: e.target.value })
+              }
+              className="border border-gray-600 w-full mb-3 px-3 py-2 rounded bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
 
-      <input
-        type="password"
-        placeholder="Пароль"
-        value={credentials.password}
-        onChange={(e) =>
-          setCredentials({ ...credentials, password: e.target.value })
-        }
-        className="border border-gray-600 w-full mb-3 px-3 py-2 rounded bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-      />
+            <input
+              type="password"
+              placeholder="Пароль"
+              value={credentials.password}
+              onChange={(e) =>
+                setCredentials({ ...credentials, password: e.target.value })
+              }
+              className="border border-gray-600 w-full mb-3 px-3 py-2 rounded bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
 
-      <div className="flex justify-end gap-3">
-        <button
-          onClick={() => setShowLogin(null)}
-          className="px-3 py-1 rounded bg-gray-500 hover:bg-gray-600 transition"
-        >
-          Отмена
-        </button>
-        <button
-          onClick={() => handleLoginSubmit(showLogin)}
-          className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 transition"
-        >
-          Подключить
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowLogin(null)}
+                className="px-3 py-1 rounded bg-gray-500 hover:bg-gray-600 transition"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={() => handleLoginSubmit(showLogin)}
+                className="px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700 transition"
+              >
+                Подключить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {message && (
         <p className="text-center mt-6 text-gray-700 font-medium">{message}</p>
