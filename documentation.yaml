@@ -1,0 +1,315 @@
+openapi: 3.0.3
+info:
+  title: MoneyPilot API
+  version: 1.0.0
+  description: >
+    OpenBanking-compatible aggregation API for managing user consents and retrieving multi-bank account data.
+
+servers:
+  - url: http://localhost:8080/api
+    description: Local development
+
+tags:
+  - name: auth
+    description: User authentication and token management
+  - name: account-consents
+    description: User consents for accessing bank data
+  - name: accounts
+    description: Account information, balances, and transactions
+
+paths:
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: User login
+      description: Authenticate user and get JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+                bank:
+                  type: string
+              required: [email, password, bank]
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+        '401':
+          description: Invalid credentials
+
+  /account-consent:
+    post:
+      tags: [account-consents]
+      summary: Create account consent
+      description: >
+        Request or auto-approve consent for accessing user's bank account data.
+      security:
+        - bearerAuth: []
+
+      parameters:
+        - name: X-Bank-Code
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Bank code (e.g., vbank, abank, sbank)
+
+
+
+      responses:
+        '200':
+          description: Consent created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bank:
+                    type: string
+                  consent_id:
+                    type: string
+                  status:
+                    type: string
+                  auto_approved:
+                    type: boolean
+        '403':
+          description: Consent pending approval
+
+  /accounts:
+    get:
+      tags: [accounts]
+      summary: Get all user accounts
+      description: >
+        Returns list of all accounts for banks where user has valid consent.
+      security:
+        - bearerAuth: []
+
+      responses:
+        '200':
+          description: List of accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accounts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BankAccount'
+                  total:
+                    type: integer
+
+  /accounts/{accountId}:
+    get:
+      tags: [accounts]
+      summary: Get account details
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Bank-Code
+          in: header
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Account details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDetail'
+
+  /accounts/{accountId}/balances:
+    get:
+      tags: [accounts]
+      summary: Get account balances
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Bank-Code
+          in: header
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Account balances
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountBalanceResponse'
+
+  /accounts/{accountId}/transactions:
+    get:
+      tags: [accounts]
+      summary: Get account transactions
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Bank-Code
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of transactions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionsResponse'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    BankAccount:
+      type: object
+      properties:
+        bank:
+          type: string
+        account_id:
+          type: string
+        nickname:
+          type: string
+        account_type:
+          type: string
+        account_subtype:
+          type: string
+        currency:
+          type: string
+        status:
+          type: string
+        owner:
+          type: string
+
+    AccountBalanceResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            balance:
+              type: array
+              items:
+                type: object
+                properties:
+                  accountId:
+                    type: string
+                  type:
+                    type: string
+                  dateTime:
+                    type: string
+                    format: date-time
+                  amount:
+                    type: object
+                    properties:
+                      amount:
+                        type: string
+                      currency:
+                        type: string
+                  creditDebitIndicator:
+                    type: string
+
+    TransactionsResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            transaction:
+              type: array
+              items:
+                type: object
+                properties:
+                  transactionId:
+                    type: string
+                  bookingDateTime:
+                    type: string
+                  amount:
+                    type: object
+                    properties:
+                      amount:
+                        type: string
+                      currency:
+                        type: string
+                  creditDebitIndicator:
+                    type: string
+                  transactionInformation:
+                    type: string
+        meta:
+          type: object
+          properties:
+            currentPage:
+              type: integer
+            totalPages:
+              type: integer
+            totalRecords:
+              type: integer
+
+    AccountDetail:
+      type: object
+      properties:
+        accountId:
+          type: string
+        nickname:
+          type: string
+        accountType:
+          type: string
+        currency:
+          type: string
+        owner:
+          type: string
+        openingDate:
+          type: string
+          format: date
