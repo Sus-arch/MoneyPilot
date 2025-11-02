@@ -181,6 +181,7 @@ func (r *Repository) GetValidAccountConsentsByEmailAndBank(email, bank string) (
 }
 
 func (r *Repository) GetValidAccountConsentsByUserID(userID int) ([]AccountConsent, error) {
+	user, _ := r.GetUserByID(userID)
 	rows, err := r.DB.Query(`
 		SELECT 
 			ac.id,
@@ -195,9 +196,9 @@ func (r *Repository) GetValidAccountConsentsByUserID(userID int) ([]AccountConse
 			ac.created_at
 		FROM account_consents ac
 		LEFT JOIN banks b ON b.id = ac.bank_id
-		WHERE ac.user_id = $1
+		WHERE ac.user_id IN (SELECT id FROM users WHERE client_id=$1)
 		  AND (ac.expires_at IS NULL OR ac.expires_at > NOW())
-	`, userID)
+	`, user.ClientID)
 	if err != nil {
 		return nil, err
 	}
@@ -229,6 +230,7 @@ func (r *Repository) GetValidAccountConsentsByUserID(userID int) ([]AccountConse
 // GetPendingAccountConsents returns all consents in DB that are currently marked as 'pending'.
 // It includes the bank code (joined from banks table) so callers can route requests to the correct bank.
 func (r *Repository) GetPendingAccountConsents() ([]AccountConsent, error) {
+
 	rows, err := r.DB.Query(`
 		SELECT ac.id, ac.consent_id, ac.user_id, ac.bank_id, b.code AS bank_code, ac.requesting_bank, ac.permissions, ac.status, ac.expires_at, ac.created_at
 		FROM account_consents ac
