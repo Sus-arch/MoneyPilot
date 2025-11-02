@@ -127,7 +127,7 @@ func (h *ConsentHandler) CreateConsent(c *gin.Context) {
 	target := strings.TrimRight(bankClient.BaseURL, "/") + "/account-consents/request"
 	payload := map[string]interface{}{
 		"client_id":            user.ClientID,
-		"permissions":          []string{"ReadAccountsDetail", "ReadBalances"},
+		"permissions":          []string{"ReadAccountsDetail", "ReadBalances", "ReadTransactionsDetail"},
 		"reason":               "Агрегация счетов для HackAPI",
 		"requesting_bank":      "team081",
 		"requesting_bank_name": "MoneyPilot",
