@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext";
 
 export default function Layout() {
   const location = useLocation();
-  const { token, logout } = useAuth(); // теперь получаем token
+  const { token, logout } = useAuth();
 
   const navItems = [
     { path: "/dashboard", label: "Дашборд" },
@@ -36,7 +36,6 @@ export default function Layout() {
           </nav>
         </div>
 
-        {/* Показываем кнопку только если есть токен */}
         {token && (
           <div className="flex items-center space-x-4">
             <button
