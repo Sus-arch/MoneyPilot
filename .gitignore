@@ -27,7 +27,8 @@ go.work.sum
 # env file
 
 # Editor/IDE
-# .idea/
+.idea/
+.venv/
 # .vscode/
 web/cert.pem
 web/key.pem
