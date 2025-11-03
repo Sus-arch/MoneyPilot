@@ -10,6 +10,7 @@ export default function Layout() {
     { path: "/accounts", label: "Счета" },
     { path: "/banks", label: "Банки" },
     { path: "/products", label: "Продукты" },
+    { path: "/transactions", label: "Транзакции" },
   ];
 
   return (
