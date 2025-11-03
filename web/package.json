@@ -11,6 +11,7 @@
     "prepare": "husky install"
   },
   "dependencies": {
+    "dayjs": "^1.11.19",
     "framer-motion": "^12.23.24",
     "jwt-decode": "^3.1.2",
     "react": "^19.1.1",
