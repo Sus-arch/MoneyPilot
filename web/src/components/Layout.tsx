@@ -7,10 +7,10 @@ export default function Layout() {
 
   const navItems = [
     { path: "/dashboard", label: "Дашборд" },
-    { path: "/accounts", label: "Счета" },
     { path: "/banks", label: "Банки" },
-    { path: "/products", label: "Продукты" },
+    { path: "/accounts", label: "Счета" },
     { path: "/transactions", label: "Транзакции" },
+    { path: "/products", label: "Продукты" },
   ];
 
   return (

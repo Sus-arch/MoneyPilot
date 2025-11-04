@@ -1,12 +1,16 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { useAuth } from "../context/AuthContext";
+import { get } from "../api/client";
+import { CreditCard, Banknote, PiggyBank, Wallet, Landmark } from "lucide-react";
 
-// Типы
 interface Account {
-  accountId: string;
+  account_id: string;
   nickname: string;
   currency: string;
-  balance: number;
+  account_subtype: string;
+  bank: string;
+  balance?: number;
 }
 
 interface Recommendation {
@@ -18,12 +22,21 @@ interface Recommendation {
   created_at: string;
 }
 
-// Тестовые данные
-const TEST_ACCOUNTS: Account[] = [
-  { accountId: "acc-1001", nickname: "Основной счёт", currency: "RUB", balance: 94691.8 },
-  { accountId: "acc-1002", nickname: "Накопительный", currency: "RUB", balance: 50000.0 },
-  { accountId: "acc-1003", nickname: "USD счёт", currency: "USD", balance: 1200.5 },
-];
+const ACCOUNT_SUBTYPE_RU: Record<string, string> = {
+  Checking: "Текущий счёт",
+  Savings: "Накопительный счёт",
+  Loan: "Кредитный счёт",
+  Card: "Карточный счёт",
+  Deposit: "Вклад",
+};
+
+const ACCOUNT_ICONS: Record<string, React.ReactNode> = {
+  Checking: <Landmark className="w-6 h-6 text-blue-600" />,
+  Savings: <PiggyBank className="w-6 h-6 text-pink-500" />,
+  Loan: <Banknote className="w-6 h-6 text-amber-600" />,
+  Card: <CreditCard className="w-6 h-6 text-green-600" />,
+  Deposit: <Wallet className="w-6 h-6 text-purple-600" />,
+};
 
 const TEST_RECOMMENDATIONS: Recommendation[] = [
   {
@@ -47,17 +60,66 @@ const TEST_RECOMMENDATIONS: Recommendation[] = [
 ];
 
 export default function DashboardPage() {
-
-  const [accounts] = useState<Account[]>(TEST_ACCOUNTS);
-  const [recommendations] = useState<Recommendation[]>(TEST_RECOMMENDATIONS);
+  const { currentBank, bankTokens } = useAuth();
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [totalBalance, setTotalBalance] = useState<number>(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [recommendations] = useState(TEST_RECOMMENDATIONS);
+
+  const fetchAccounts = async () => {
+    if (!currentBank || !bankTokens[currentBank]) return;
+    setLoading(true);
+    setError("");
+
+    try {
+      // 1. Получаем список счетов
+      const res = await get("/accounts", {
+        Authorization: `Bearer ${bankTokens[currentBank]}`,
+      });
+
+      const rawAccounts: Account[] = res.accounts || [];
+
+      // 2. Для каждого счёта — получаем баланс
+      const accountsWithBalances = await Promise.all(
+        rawAccounts.map(async (acc) => {
+          try {
+            const balanceRes = await get(`/accounts/${acc.account_id}/balances`, {
+              Authorization: `Bearer ${bankTokens[acc.bank || currentBank]}`,
+              "X-Bank-Code": (acc.bank || currentBank).toLowerCase(),
+            });
+
+            const available = balanceRes.data?.balance?.find(
+              (b: any) => b.type === "InterimAvailable"
+            );
+            const balance = available ? parseFloat(available.amount.amount) : 0;
+
+            return { ...acc, balance };
+          } catch {
+            return { ...acc, balance: 0 };
+          }
+        })
+      );
+
+      setAccounts(accountsWithBalances);
+
+      // 3. Общий баланс по рублевым счетам
+      const total = accountsWithBalances
+        .filter((a) => a.currency === "RUB")
+        .reduce((sum, a) => sum + (a.balance || 0), 0);
+
+      setTotalBalance(total);
+    } catch (err) {
+      console.error(err);
+      setError("Не удалось загрузить счета");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const total = accounts
-      .filter((acc) => acc.currency === "RUB")
-      .reduce((sum, acc) => sum + acc.balance, 0);
-    setTotalBalance(total);
-  }, [accounts]);
+    fetchAccounts();
+  }, [currentBank, bankTokens]);
 
   return (
     <motion.div
@@ -66,14 +128,12 @@ export default function DashboardPage() {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.6 }}
     >
-      <motion.h1
-        className="text-3xl font-bold text-center text-blue-700 mb-8"
-        initial={{ y: -20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.5 }}
-      >
+      <h1 className="text-3xl font-bold text-center text-blue-700 mb-8">
         Панель управления
-      </motion.h1>
+      </h1>
+
+      {loading && <p className="text-center text-gray-700">Загрузка счетов...</p>}
+      {error && <p className="text-center text-red-500">{error}</p>}
 
       {/* Общий баланс */}
       <motion.div
@@ -82,7 +142,9 @@ export default function DashboardPage() {
         animate={{ scale: 1, opacity: 1 }}
         transition={{ duration: 0.5 }}
       >
-        <h2 className="text-xl font-semibold text-gray-700 mb-2">Общий баланс</h2>
+        <h2 className="text-xl font-semibold text-gray-700 mb-2">
+          Общий баланс
+        </h2>
         <p className="text-4xl font-bold text-blue-800">
           {totalBalance.toLocaleString("ru-RU", {
             style: "currency",
@@ -99,22 +161,31 @@ export default function DashboardPage() {
           animate={{ x: 0, opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.1 }}
         >
-          <h2 className="text-2xl font-semibold text-gray-800 mb-4">Ваши счета</h2>
+          <h2 className="text-2xl font-semibold text-gray-800 mb-4">
+            Ваши счета
+          </h2>
           <div className="space-y-3">
             {accounts.map((acc, i) => (
               <motion.div
-                key={acc.accountId}
-                className="p-4 border rounded-xl bg-gray-50 hover:shadow-md transition flex justify-between items-center"
+                key={`${acc.bank}-${acc.account_id}`}
+                className="p-4 border rounded-xl bg-gray-50 hover:shadow-md transition flex items-center justify-between"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, delay: i * 0.1 }}
               >
-                <div>
-                  <p className="font-semibold text-gray-800">{acc.nickname}</p>
-                  <p className="text-sm text-gray-500">{acc.currency}</p>
+                <div className="flex items-center gap-3">
+                  {ACCOUNT_ICONS[acc.account_subtype] || (
+                    <Wallet className="w-6 h-6 text-gray-400" />
+                  )}
+                  <div>
+                    <p className="font-semibold text-gray-800">
+                      {ACCOUNT_SUBTYPE_RU[acc.account_subtype] ||
+                        acc.account_subtype}
+                    </p>
+                  </div>
                 </div>
                 <p className="text-lg font-bold text-blue-700">
-                  {acc.balance.toLocaleString("ru-RU")} {acc.currency}
+                  {acc.balance?.toLocaleString("ru-RU")} {acc.currency}
                 </p>
               </motion.div>
             ))}
