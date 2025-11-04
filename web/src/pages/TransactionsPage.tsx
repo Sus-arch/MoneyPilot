@@ -212,7 +212,7 @@ export default function TransactionsPage() {
         >
           <option value="all">Все операции</option>
           <option value="credit">Поступления</option>
-          <option value="debit">Траты</option>
+          <option value="debit">Расходы</option>
         </select>
 
         <select
