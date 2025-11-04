@@ -8,6 +8,15 @@ interface Account {
   status: string;
   currency: string;
   bank: string;
+  account_subtype: string;
+}
+
+interface Balance {
+  amount: string;
+  currency: string;
+  type: string;
+  creditDebitIndicator: string;
+  dateTime: string;
 }
 
 interface AccountDetail {
@@ -16,14 +25,19 @@ interface AccountDetail {
   account_subtype: string;
   description?: string;
   opening_date: string;
-  balance?: {
-    amount: string;
-    currency: string;
-    type: string;
-    creditDebitIndicator: string;
-    dateTime: string;
-  }[];
+  balance?: Balance[];
 }
+
+const ACCOUNT_TYPE_TRANSLATIONS: Record<string, string> = {
+  Checking: "Расчётный счёт",
+  Savings: "Сберегательный счёт",
+  Loan: "Кредитный счёт",
+  Card: "Карта",
+  Deposit: "Депозит",
+  Investment: "Инвестиционный счёт",
+  Personal: "Личный счёт",
+  Business: "Бизнес-счёт",
+};
 
 export default function AccountsPage() {
   const { token, currentBank, bankTokens } = useAuth();
@@ -33,7 +47,6 @@ export default function AccountsPage() {
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState("");
 
-  // Получаем список счетов
   const fetchAccounts = async () => {
     if (!token || !currentBank || !bankTokens[currentBank]) return;
     setLoading(true);
@@ -44,7 +57,16 @@ export default function AccountsPage() {
         Authorization: `Bearer ${bankTokens[currentBank]}`,
       });
 
-      setAccounts(res.accounts || []);
+      const accountsData: Account[] = (res.accounts || []).map((a: any) => ({
+        account_id: a.account_id,
+        nickname: a.nickname,
+        status: a.status,
+        currency: a.currency,
+        bank: a.bank,
+        account_subtype: a.account_subtype,
+      }));
+
+      setAccounts(accountsData);
     } catch {
       setError("Не удалось получить список счетов");
     } finally {
@@ -56,7 +78,6 @@ export default function AccountsPage() {
     fetchAccounts();
   }, [token, currentBank, bankTokens]);
 
-  // Получаем детали и баланс выбранного счёта
   const handleSelectAccount = async (account: Account) => {
     if (!token || !bankTokens[account.bank]) return;
     setLoadingDetails(true);
@@ -75,8 +96,8 @@ export default function AccountsPage() {
         }),
       ]);
 
-      const details = detailsRes.data.account[0]; // поправка под структуру API
-      const balances = (balanceRes.data?.balance || []).map((b: any) => ({
+      const details = detailsRes.data.account[0];
+      const balances: Balance[] = (balanceRes.data?.balance || []).map((b: any) => ({
         amount: b.amount.amount,
         currency: b.amount.currency,
         type: b.type,
@@ -105,6 +126,11 @@ export default function AccountsPage() {
     return acc;
   }, {});
 
+  const getAvailableBalance = (balances?: Balance[]) => {
+    if (!balances) return null;
+    return balances.find((b) => b.type === "InterimAvailable");
+  };
+
   return (
     <div className="max-w-5xl mx-auto p-8">
       <h1 className="text-3xl font-bold text-blue-700 mb-6">Счета</h1>
@@ -114,16 +140,18 @@ export default function AccountsPage() {
 
       {Object.keys(groupedAccounts).map((bank) => (
         <div key={bank} className="mb-6">
-          <h2 className="text-2xl font-semibold mb-4">{bank}</h2>
+          <h2 className="text-2xl font-semibold mb-4">{bank.toUpperCase()}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             {groupedAccounts[bank].map((acc) => (
               <div
                 key={acc.account_id}
-                className="p-4 border rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer shadow-sm transition"
+                className="p-4 border rounded-lg bg-gray-50 hover:bg-gray-100 cursor-pointer shadow-md transition"
                 onClick={() => handleSelectAccount(acc)}
               >
-                <p className="font-semibold text-lg">{acc.nickname}</p>
-                <p className="text-gray-600">{acc.status} • {acc.currency}</p>
+                <p className="font-semibold text-lg">{ACCOUNT_TYPE_TRANSLATIONS[acc.account_subtype] || acc.nickname}</p>
+                <p className="text-gray-600">
+                  {acc.status === "Enabled" ? "Активен" : "Не активен"} • {acc.currency}
+                </p>
               </div>
             ))}
           </div>
@@ -140,23 +168,37 @@ export default function AccountsPage() {
               &times;
             </button>
 
-            <h2 className="text-2xl font-bold text-blue-700 mb-4">{selectedAccount.account_id}</h2>
+            <h2 className="text-2xl font-bold text-blue-700 mb-4">
+              {ACCOUNT_TYPE_TRANSLATIONS[selectedAccount.account_subtype] || selectedAccount.account_id}
+            </h2>
             <div className="space-y-2 text-gray-700">
-              <p><span className="font-semibold">Тип:</span> {selectedAccount.account_type}</p>
-              <p><span className="font-semibold">Подтип:</span> {selectedAccount.account_subtype}</p>
-              {selectedAccount.description && <p><span className="font-semibold">Описание:</span> {selectedAccount.description}</p>}
-              <p><span className="font-semibold">Дата открытия:</span> {selectedAccount.opening_date}</p>
+              <p>
+                <span className="font-semibold">Тип:</span> {selectedAccount.account_type === "Personal" ? "Личный" : "Бизнес"}
+              </p>
+              <p>
+                <span className="font-semibold">Подтип:</span> {ACCOUNT_TYPE_TRANSLATIONS[selectedAccount.account_subtype] || selectedAccount.account_subtype}
+              </p>
+              {selectedAccount.description && (
+                <p>
+                  <span className="font-semibold">Описание:</span> {selectedAccount.description}
+                </p>
+              )}
+              <p>
+                <span className="font-semibold">Дата открытия:</span> {selectedAccount.opening_date}
+              </p>
 
               {loadingDetails && <p>Загрузка баланса...</p>}
 
               {selectedAccount.balance && (
                 <div className="mt-2">
                   <p className="font-semibold">Баланс:</p>
-                  {selectedAccount.balance.map((b, i) => (
-                    <p key={i}>
-                      {b.amount} {b.currency} ({b.creditDebitIndicator}, {b.type})
-                    </p>
-                  ))}
+                  <p className="text-lg font-semibold">
+                    {(() => {
+                      const available = getAvailableBalance(selectedAccount.balance);
+                      if (!available) return "-";
+                      return `${available.amount} ${available.currency}`;
+                    })()}
+                  </p>
                 </div>
               )}
             </div>
