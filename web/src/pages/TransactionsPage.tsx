@@ -20,6 +20,17 @@ interface Transaction {
   transactionInformation: string;
 }
 
+const ACCOUNT_TYPE_TRANSLATIONS: Record<string, string> = {
+  Checking: "Расчётный счёт",
+  Savings: "Сберегательный счёт",
+  Loan: "Кредитный счёт",
+  Card: "Карта",
+  Deposit: "Депозит",
+  Investment: "Инвестиционный счёт",
+  Personal: "Личный счёт",
+  Business: "Бизнес-счёт",
+};
+
 export default function TransactionsPage() {
   const { currentBank, bankTokens } = useAuth();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -45,7 +56,7 @@ export default function TransactionsPage() {
   ];
 
   // --- Получаем все счета ---
-  const fetchAccounts = async () => {
+    const fetchAccounts = async () => {
     if (!currentBank) return;
     const token = bankTokens[currentBank];
     if (!token) return;
@@ -55,13 +66,20 @@ export default function TransactionsPage() {
         Authorization: `Bearer ${token}`,
       });
 
-      const accountsData: Account[] = (res.accounts || []).map((a: any) => ({
-        accountId: a.account_id,
-        nickname: a.nickname,
-        status: a.status,
-        currency: a.currency,
-        bank: a.bank,
-      }));
+      const accountsData: Account[] = (res.accounts || []).map((a: any) => {
+        console.log(a.account_subtype);
+        const translatedType =
+          ACCOUNT_TYPE_TRANSLATIONS[a.account_subtype] ||
+          "Неизвестный тип";
+
+        return {
+          accountId: a.account_id,
+          nickname: `${translatedType || a.nickname}`,
+          status: a.status,
+          currency: a.currency,
+          bank: a.bank,
+        };
+      });
 
       setAccounts(accountsData);
 
@@ -73,6 +91,7 @@ export default function TransactionsPage() {
       console.error(err);
     }
   };
+
 
   // --- Получаем транзакции ---
   const fetchTransactions = async () => {
