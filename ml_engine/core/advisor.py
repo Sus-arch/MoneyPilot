@@ -3,6 +3,7 @@ from datetime import datetime
 from core.rules.entertainment_control import recommend_entertainment_control
 from core.rules.smart_payment import recommend_smart_payment
 from core.rules.auto_savings import recommend_auto_savings
+from core.rules.stress_index import recommend_stress_index
 
 
 def generate_advice(client_data: dict):
@@ -32,7 +33,8 @@ def generate_advice(client_data: dict):
     for func in [
         recommend_smart_payment,
         recommend_auto_savings,
-        recommend_entertainment_control
+        recommend_entertainment_control,
+        recommend_stress_index
     ]:
         try:
             rec = func(client_data)
