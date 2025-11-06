@@ -112,6 +112,7 @@ type ProductAgreement struct {
 
 type ProductAgreementConsent struct {
 	ID                     int
+	RequestID              string
 	ConsentID              string
 	UserID                 int
 	BankID                 int

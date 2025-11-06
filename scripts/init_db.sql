@@ -3,7 +3,7 @@
 -- ========================
 
 -- Очистка при пересоздании
-DROP TABLE IF EXISTS product_agreements, products, payments, payment_consents, account_consents, transactions, accounts, users, banks, product_agreement_consents CASCADE;
+-- DROP TABLE IF EXISTS product_agreements, products, payments, payment_consents, account_consents, transactions, accounts, users, banks, product_agreement_consents CASCADE;
 
 -- 🏦 Таблица банков
 CREATE TABLE banks (
