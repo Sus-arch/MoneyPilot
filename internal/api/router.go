@@ -12,7 +12,10 @@ import (
 	"MoneyPilot/internal/accounts"
 	"MoneyPilot/internal/auth"
 	bankapi "MoneyPilot/internal/bankapi"
+	"MoneyPilot/internal/poller"
+	"MoneyPilot/internal/productconsents"
 	"MoneyPilot/internal/storage"
+	"MoneyPilot/internal/websockets"
 )
 
 func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
@@ -28,7 +31,7 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// --- Сервисы и хендлеры ---
+	// --- Инициализация зависимостей ---
 	repo := storage.NewRepository(db)
 	ts := bankapi.NewTokenService(rdb)
 
@@ -40,16 +43,45 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	secured := apiGroup.Group("")
 	secured.Use(auth.DecodeToken([]byte(jwtSecret)))
 
+	// --- Handlers ---
 	consentHandler := accountconsents.NewConsentHandler(repo, ts, bankapi.Banks)
 	accountService := accounts.NewService(repo, ts, bankapi.Banks)
 	accountHandler := accounts.NewHandler(accountService)
 
-	// --- Запускаем poller согласий ---
+	productService := productconsents.NewService(repo, ts, bankapi.Banks)
+	productHandler := productconsents.NewHandler(productService)
+
+	// --- WebSocket Hub ---
+	wsHub := websockets.NewHub()
+	r.GET("/ws", wsHub.HandleConnection)
+
+	// --- Репозитории для Poller ---
+	AccountRepo := poller.AccountConsentRepoAdapter{
+		Repo: repo,
+	}
+	ProductRepo := poller.ProductConsentRepoAdapter{
+		Repo: repo,
+	}
+
+	// --- Poller ---
+	pl := poller.NewPoller(
+		[]poller.ConsentRepo{&AccountRepo, &ProductRepo},
+		ts,
+		bankapi.Banks,
+		wsHub, // уведомления через WebSocket
+	)
 	stopCh := make(chan struct{})
-	consentHandler.StartPoller(5*time.Second, stopCh)
+	pl.Start(5*time.Second, stopCh)
 
 	// --- Маршруты ---
 	secured.POST("/account-consent", consentHandler.CreateConsent)
+
+	// 👇 Добавляем маршруты для product consents
+	secured.POST("/product-consents/request", productHandler.CreateConsent)
+	// secured.GET("/product-consents", productHandler.ListConsents) // опционально
+	// secured.GET("/product-consents/:consent_id", productHandler.GetConsentStatus) // опционально
+
+	// --- Account-related endpoints ---
 	secured.GET("/accounts", accountHandler.ListAccounts)
 	secured.GET("/accounts/:account_id/balances", accountHandler.GetAccountBalance)
 	secured.GET("/accounts/:account_id/transactions", accountHandler.GetAccountTransactions)

@@ -1,7 +1,8 @@
-package consentpoller
+package poller
 
 import (
 	"MoneyPilot/internal/bankapi"
+	"MoneyPilot/internal/websockets"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,6 +38,7 @@ type Poller struct {
 
 	subscribers map[string]chan string // consentID → канал, который ждёт подтверждения
 	mu          sync.Mutex
+	WSHub       *websockets.WebSocketHub
 }
 
 // Создаёт новый Poller
@@ -44,6 +46,8 @@ func NewPoller(
 	repos []ConsentRepo,
 	tokenSvc *bankapi.TokenService,
 	banks map[string]*bankapi.BankClient,
+	hub *websockets.WebSocketHub, // новый аргумент
+
 ) *Poller {
 	return &Poller{
 		Repos:       repos,
@@ -51,6 +55,7 @@ func NewPoller(
 		BankClients: banks,
 		HTTPClient:  &http.Client{Timeout: 10 * time.Second},
 		subscribers: make(map[string]chan string),
+		WSHub:       hub,
 	}
 }
 
@@ -77,6 +82,7 @@ func (p *Poller) Start(interval time.Duration, stopCh <-chan struct{}) {
 func (p *Poller) pollAll() {
 	for _, repo := range p.Repos {
 		consents, err := repo.GetPendingConsents()
+		log.Println(consents)
 		if err != nil {
 			log.Printf("[poller] failed to load consents: %v", err)
 			continue
@@ -107,6 +113,7 @@ func (p *Poller) checkConsentStatus(repo ConsentRepo, c ConsentRecord) {
 	// endpoint зависит от типа согласия
 	url := fmt.Sprintf("%s/%s-consents/%s", strings.TrimRight(client.BaseURL, "/"), c.ConsentType, c.ConsentID)
 
+	log.Println(url)
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+token.Token)
 	req.Header.Set("Accept", "application/json")
@@ -124,15 +131,18 @@ func (p *Poller) checkConsentStatus(repo ConsentRepo, c ConsentRecord) {
 		return
 	}
 
-	var parsed struct {
-		Status    string `json:"status"`
-		ConsentID string `json:"consent_id"`
+	var wrapper struct {
+		Data struct {
+			ConsentID string `json:"consentId"`
+			Status    string `json:"status"`
+		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		log.Printf("[poller] unmarshal failed: %v", err)
+	if err := json.Unmarshal(body, &wrapper); err != nil {
+		log.Printf("[poller] unmarshal failed: %v (body=%s)", err, string(body))
 		return
 	}
-
+	parsed := wrapper.Data
+	log.Printf("[poller] parsed consentId=%s, status=%s", parsed.ConsentID, parsed.Status)
 	if strings.EqualFold(parsed.Status, "approved") ||
 		strings.EqualFold(parsed.Status, "authorized") ||
 		strings.EqualFold(parsed.Status, "authorised") {
@@ -158,7 +168,6 @@ func (p *Poller) WaitForConsent(consentID string, timeout time.Duration) bool {
 	}
 }
 
-// 🔔 Уведомление всех, кто ждал конкретное согласие
 func (p *Poller) notifySubscribers(consentID string) {
 	p.mu.Lock()
 	if ch, ok := p.subscribers[consentID]; ok {
@@ -167,4 +176,11 @@ func (p *Poller) notifySubscribers(consentID string) {
 		delete(p.subscribers, consentID)
 	}
 	p.mu.Unlock()
+
+	// 🔔 Шлём уведомление фронту через WebSocket
+	if p.WSHub != nil {
+		msg := fmt.Sprintf(`{"consent_id":"%s","status":"approved"}`, consentID)
+		p.WSHub.Broadcast(msg)
+		log.Printf("[poller→ws] sent WS update: %s", msg)
+	}
 }

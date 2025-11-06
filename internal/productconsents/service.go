@@ -6,6 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -64,7 +67,7 @@ func (s *Service) CreateConsent(ctx context.Context, userID int, bankCode string
 	}
 
 	// 3️⃣ Создаём запрос к банку
-	target := strings.TrimRight(bankClient.BaseURL, "/") + "/product-agreement-consents/request"
+	target := fmt.Sprintf(strings.TrimRight(bankClient.BaseURL, "/")+"/product-agreement-consents/request?client_id=%s", user.ClientID)
 	payload := map[string]interface{}{
 		"requesting_bank":          "team081",
 		"client_id":                user.ClientID,
@@ -73,10 +76,10 @@ func (s *Service) CreateConsent(ctx context.Context, userID int, bankCode string
 		"close_product_agreements": req.Close,
 		"allowed_product_types":    req.Types,
 		"max_amount":               req.Amount,
-		"valid_until":              time.Now().Add(90 * 24 * time.Hour).Format(time.RFC3339),
+		"valid_until":              time.Now().Add(90 * 24 * time.Hour).Format("2006-01-02T15:04:05"),
 		"reason":                   "Финансовый агрегатор для управления продуктами",
 	}
-
+	log.Println(payload)
 	body, _ := json.Marshal(payload)
 	httpReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(string(body)))
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -86,7 +89,12 @@ func (s *Service) CreateConsent(ctx context.Context, userID int, bankCode string
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read bank response: %w", err)
+	}
+
+	log.Printf("[product-consents] bank raw response: %s", string(bodyBytes))
 
 	var bankResp struct {
 		RequestID    string    `json:"request_id"`
@@ -97,7 +105,11 @@ func (s *Service) CreateConsent(ctx context.Context, userID int, bankCode string
 		ValidUntil   time.Time `json:"valid_until"`
 	}
 
-	json.NewDecoder(resp.Body).Decode(&bankResp)
+	if err := json.Unmarshal(bodyBytes, &bankResp); err != nil {
+		return nil, fmt.Errorf("failed to decode bank response: %w", err)
+	}
+
+	log.Printf("[product-consents] parsed response: %+v", bankResp)
 
 	// 4️⃣ Сохраняем в БД
 	// expires := time.Now().Add(90 * 24 * time.Hour)
@@ -113,7 +125,6 @@ func (s *Service) CreateConsent(ctx context.Context, userID int, bankCode string
 		req.Types,
 		req.Amount,
 		bankResp.Status,
-		"Финансовый агрегатор для управления продуктами",
 		bankResp.ValidUntil,
 	); err != nil {
 		return nil, err

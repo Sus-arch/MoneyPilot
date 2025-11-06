@@ -3,7 +3,7 @@
 -- ========================
 
 -- Очистка при пересоздании
-DROP TABLE IF EXISTS product_agreements, products, payments, payment_consents, account_consents, transactions, accounts, users, banks CASCADE;
+DROP TABLE IF EXISTS product_agreements, products, payments, payment_consents, account_consents, transactions, accounts, users, banks, product_agreement_consents CASCADE;
 
 -- 🏦 Таблица банков
 CREATE TABLE banks (
@@ -120,6 +120,29 @@ CREATE TABLE product_agreements (
     status VARCHAR(32) DEFAULT 'active',
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+
+
+CREATE TABLE product_agreement_consents (
+    id SERIAL PRIMARY KEY,
+    request_id VARCHAR(64) UNIQUE NOT NULL,
+    consent_id VARCHAR(64) UNIQUE NOT NULL,
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    bank_id INT REFERENCES banks(id) ON DELETE CASCADE,
+    requesting_bank VARCHAR(64),
+    read_product_agreements BOOLEAN DEFAULT false,
+    open_product_agreements BOOLEAN DEFAULT false,
+    close_product_agreements BOOLEAN DEFAULT false,
+    allowed_product_types TEXT[] DEFAULT '{}',
+    max_amount NUMERIC(18,2),
+    status VARCHAR(32) DEFAULT 'pending',
+    expires_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+
+
+
 
 CREATE INDEX idx_users_bank_id ON users(bank_id);
 CREATE INDEX idx_accounts_user_id ON accounts(user_id);
