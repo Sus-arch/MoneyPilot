@@ -345,7 +345,34 @@ func (r *Repository) SaveProductAgreementConsent(clientID, bankCode, requestID, 
 	return tx.Commit()
 }
 
+func (r *Repository) GetUserByUserIDAndBank(userID int, bankCode string) (*User, error) {
+	tx, err := r.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+	var bankID int
+
+	if err := tx.QueryRow(`SELECT id FROM banks WHERE code=$1`, bankCode).Scan(&bankID); err != nil {
+		return nil, err
+	}
+
+	var clientId string
+	if err := tx.QueryRow(`SELECT client_id FROM users WHERE id=$1`, userID).Scan(&clientId); err != nil {
+		return nil, err
+	}
+	var u User
+
+	err = r.DB.QueryRow(`SELECT id, client_id,bank_id, email, password_hash,segment,created_at  FROM users WHERE client_id=$1 AND bank_id=$2`, clientId, bankID).
+		Scan(&u.ID, &u.ClientID, &u.BankID, &u.Email, &u.PasswordHash, &u.Segment, &u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+
+}
+
 func (r *Repository) GetActiveProductConsentByUserAndBank(userID int, bankCode string) (*ProductAgreementConsent, error) {
+	user, err := r.GetUserByUserIDAndBank(userID, bankCode)
 	rows, err := r.DB.Query(`
 		SELECT ac.id, ac.request_id , ac.consent_id, ac.user_id, ac.bank_id, b.code, ac.requesting_bank,
 			   ac.read_product_agreements, ac.open_product_agreements, ac.close_product_agreements,
@@ -353,7 +380,7 @@ func (r *Repository) GetActiveProductConsentByUserAndBank(userID int, bankCode s
 		FROM product_agreement_consents ac
 		LEFT JOIN banks b ON b.id = ac.bank_id
 		WHERE ac.user_id=$1 AND b.code=$2 AND ac.status IN ('approved','pending')
-	`, userID, bankCode)
+	`, user.ID, bankCode)
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +388,7 @@ func (r *Repository) GetActiveProductConsentByUserAndBank(userID int, bankCode s
 
 	if rows.Next() {
 		var c ProductAgreementConsent
-		if err := rows.Scan(&c.ID, &c.ConsentID, &c.UserID, &c.BankID, &c.BankCode,
+		if err := rows.Scan(&c.ID, &c.ConsentID, &c.RequestID, &c.UserID, &c.BankID, &c.BankCode,
 			&c.RequestingBank, &c.ReadProductAgreements, &c.OpenProductAgreements, &c.CloseProductAgreements,
 			pq.Array(&c.AllowedProductTypes), &c.MaxAmount, &c.Status, &c.ExpiresAt, &c.CreatedAt); err != nil {
 			return nil, err
