@@ -109,3 +109,20 @@ type ProductAgreement struct {
 	Status      string    `db:"status" json:"status"`
 	CreatedAt   time.Time `db:"created_at" json:"created_at"`
 }
+
+type ProductAgreementConsent struct {
+	ID                     int
+	ConsentID              string
+	UserID                 int
+	BankID                 int
+	RequestingBank         *string
+	ReadProductAgreements  bool
+	OpenProductAgreements  bool
+	CloseProductAgreements bool
+	AllowedProductTypes    []string
+	MaxAmount              float64
+	Status                 string
+	ExpiresAt              *time.Time
+	CreatedAt              time.Time
+	BankCode               *string
+}

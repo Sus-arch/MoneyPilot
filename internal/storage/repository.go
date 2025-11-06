@@ -312,3 +312,66 @@ func (r *Repository) UpdateAccountConsentIDAndStatus(oldConsentID, newConsentID,
 	_, err := r.DB.Exec(`UPDATE account_consents SET consent_id=$1, status=$2 WHERE consent_id=$3`, newConsentID, status, oldConsentID)
 	return err
 }
+
+func (r *Repository) SaveProductAgreementConsent(clientID, bankCode, requestID, consentID, requestingBank string,
+	read, open, close bool, allowedTypes []string, maxAmount float64, status string, expiresAt time.Time) error {
+
+	tx, err := r.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var userID, bankID int
+
+	if err := tx.QueryRow(`SELECT id FROM banks WHERE code=$1`, bankCode).Scan(&bankID); err != nil {
+		return err
+	}
+	if err := tx.QueryRow(`SELECT id FROM users WHERE client_id=$1 AND bank_id=$2`, clientID, bankID).Scan(&userID); err != nil {
+		return err
+	}
+	_, err = tx.Exec(`
+		INSERT INTO product_agreement_consents (
+			request_id, consent_id, user_id, bank_id, requesting_bank,
+			read_product_agreements, open_product_agreements, close_product_agreements,
+			allowed_product_types, max_amount, status, expires_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+	`, requestID, consentID, userID, bankID, requestingBank, read, open, close, pq.Array(allowedTypes), maxAmount, status, expiresAt)
+
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (r *Repository) GetActiveProductConsentByUserAndBank(userID int, bankCode string) (*ProductAgreementConsent, error) {
+	rows, err := r.DB.Query(`
+		SELECT ac.id, ac.request_id , ac.consent_id, ac.user_id, ac.bank_id, b.code, ac.requesting_bank,
+			   ac.read_product_agreements, ac.open_product_agreements, ac.close_product_agreements,
+			   ac.allowed_product_types, ac.max_amount, ac.status, ac.expires_at, ac.created_at
+		FROM product_agreement_consents ac
+		LEFT JOIN banks b ON b.id = ac.bank_id
+		WHERE ac.user_id=$1 AND b.code=$2 AND ac.status IN ('approved','pending')
+	`, userID, bankCode)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var c ProductAgreementConsent
+		if err := rows.Scan(&c.ID, &c.ConsentID, &c.UserID, &c.BankID, &c.BankCode,
+			&c.RequestingBank, &c.ReadProductAgreements, &c.OpenProductAgreements, &c.CloseProductAgreements,
+			pq.Array(&c.AllowedProductTypes), &c.MaxAmount, &c.Status, &c.ExpiresAt, &c.CreatedAt); err != nil {
+			return nil, err
+		}
+		return &c, nil
+	}
+	return nil, sql.ErrNoRows
+}
+
+func (r *Repository) DeleteProductConsent(consentID string) error {
+	_, err := r.DB.Exec(`DELETE FROM product_agreement_consents WHERE consent_id=$1`, consentID)
+	return err
+}
