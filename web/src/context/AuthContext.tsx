@@ -68,9 +68,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setToken(null);
     setCurrentBank(null);
     setBankTokens({});
-    localStorage.removeItem("token");
-    localStorage.removeItem("currentBank");
-    localStorage.removeItem("bankTokens");
+    localStorage.clear();
     navigate("/login");
   };
 
