@@ -149,6 +149,7 @@ func (p *Poller) checkConsentStatus(repo ConsentRepo, c ConsentRecord) {
 
 		log.Printf("[poller] consent %s approved ✅", c.ConsentID)
 		repo.UpdateConsentStatus(c.ConsentID, "approved")
+		repo.UpdateConsentID(c.ConsentID, parsed.ConsentID, "approved")
 		p.notifySubscribers(c.ConsentID)
 	}
 }

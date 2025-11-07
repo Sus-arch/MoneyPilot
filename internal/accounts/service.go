@@ -42,6 +42,7 @@ type BankAccount struct {
 // FetchAllUserAccounts получает счета со всех банков, на которые есть согласие
 func (s *Service) FetchAllUserAccounts(userID int) ([]BankAccount, error) {
 	consents, err := s.repo.GetValidAccountConsentsByUserID(userID)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to load consents: %w", err)
 	}
