@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
-import { get } from "../api/client";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -22,24 +21,11 @@ export default function LoginPage() {
     try {
       const status = await login(email, password, bank);
 
-      // если банк sbank, показываем сообщение и ждём согласие
       if (status === "waiting") {
         setWaiting(true);
-
-        // каждые 5 сек опрашиваем /accounts
-        const poll = setInterval(async () => {
-          try {
-            const res = await get("/accounts");
-            if (res.accounts && res.accounts.length > 0) {
-              clearInterval(poll);
-              window.location.href = "/dashboard";
-            }
-          } catch {
-            // продолжаем ожидание
-          }
-        }, 10000);
       }
-    } catch {
+    } catch (err) {
+      console.error(err);
       setError("Ошибка авторизации. Проверьте данные.");
     } finally {
       if (!waiting) setLoading(false);
@@ -92,7 +78,6 @@ export default function LoginPage() {
             />
           </div>
 
-          {/* 👇 Красивый кастомный выпадающий список */}
           <div className="relative">
             <label className="block text-sm font-medium text-blue-100 mb-1">
               Банк
@@ -134,13 +119,11 @@ export default function LoginPage() {
             </AnimatePresence>
           </div>
 
-          {/* Ошибка */}
           {error && <p className="text-red-400 text-center">{error}</p>}
 
-          {/* ⚠️ Сообщение об ожидании подтверждения */}
           {waiting && (
             <p className="text-yellow-300 text-center font-medium animate-pulse">
-              ⚠️ Подтвердите согласие в приложении банка SBank, затем вы будете перенаправлены.
+              ⚠️ Подтвердите согласие в приложении банка, затем вы будете перенаправлены.
             </p>
           )}
 
