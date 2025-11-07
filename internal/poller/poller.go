@@ -82,7 +82,6 @@ func (p *Poller) Start(interval time.Duration, stopCh <-chan struct{}) {
 func (p *Poller) pollAll() {
 	for _, repo := range p.Repos {
 		consents, err := repo.GetPendingConsents()
-		log.Println(consents)
 		if err != nil {
 			log.Printf("[poller] failed to load consents: %v", err)
 			continue
@@ -113,7 +112,6 @@ func (p *Poller) checkConsentStatus(repo ConsentRepo, c ConsentRecord) {
 	// endpoint зависит от типа согласия
 	url := fmt.Sprintf("%s/%s-consents/%s", strings.TrimRight(client.BaseURL, "/"), c.ConsentType, c.ConsentID)
 
-	log.Println(url)
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+token.Token)
 	req.Header.Set("Accept", "application/json")

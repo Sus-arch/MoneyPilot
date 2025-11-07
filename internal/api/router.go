@@ -13,6 +13,7 @@ import (
 	"MoneyPilot/internal/auth"
 	bankapi "MoneyPilot/internal/bankapi"
 	"MoneyPilot/internal/poller"
+	"MoneyPilot/internal/productagreements"
 	"MoneyPilot/internal/productconsents"
 	"MoneyPilot/internal/storage"
 	"MoneyPilot/internal/websockets"
@@ -48,9 +49,11 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	accountService := accounts.NewService(repo, ts, bankapi.Banks)
 	accountHandler := accounts.NewHandler(accountService)
 
-	productService := productconsents.NewService(repo, ts, bankapi.Banks)
-	productHandler := productconsents.NewHandler(productService)
+	productConsentsService := productconsents.NewService(repo, ts, bankapi.Banks)
+	productConsentsHandler := productconsents.NewHandler(productConsentsService)
 
+	productAgreementService := productagreements.NewService(repo, ts, bankapi.Banks)
+	productAgreementHandler := productagreements.NewHandler(productAgreementService)
 	// --- WebSocket Hub ---
 	wsHub := websockets.NewHub()
 	r.GET("/ws", wsHub.HandleConnection)
@@ -77,7 +80,7 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	secured.POST("/account-consent", consentHandler.CreateConsent)
 
 	// 👇 Добавляем маршруты для product consents
-	secured.POST("/product-consents/request", productHandler.CreateConsent)
+	secured.POST("/product-consents/request", productConsentsHandler.CreateConsent)
 	// secured.GET("/product-consents", productHandler.ListConsents) // опционально
 	// secured.GET("/product-consents/:consent_id", productHandler.GetConsentStatus) // опционально
 
@@ -87,5 +90,8 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	secured.GET("/accounts/:account_id/transactions", accountHandler.GetAccountTransactions)
 	secured.GET("/accounts/:account_id/details", accountHandler.GetAccountDetails)
 
+	secured.GET("/products", productAgreementHandler.ListProducts)
+	secured.GET("/products/:agreement_id", productAgreementHandler.GetProductDetails)
+	secured.DELETE("/products/:agreement_id", productAgreementHandler.DeleteProduct)
 	return r
 }
