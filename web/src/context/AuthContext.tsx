@@ -1,4 +1,4 @@
-import { createContext, useState, useContext } from "react";
+import { createContext, useState, useContext, useRef } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { post } from "../api/client";
@@ -24,6 +24,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   );
   const navigate = useNavigate();
 
+  // 🔹 WebSocket для ожидания согласия
+  const wsRef = useRef<WebSocket | null>(null);
+  const activeBankRef = useRef<string | null>(null);
+
   const saveBankToken = (bank: string, jwt: string) => {
     const updated = { ...bankTokens, [bank]: jwt };
     setBankTokens(updated);
@@ -31,37 +35,63 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const login = async (email: string, password: string, bank: string): Promise<"ok" | "waiting"> => {
-    // 🔹 1. Логинимся
+    // 1️⃣ Авторизация
     const response = await post("/auth/login", { email, password, bank });
     const jwt = response.token;
     if (!jwt) throw new Error("JWT токен не получен");
 
-    // 🔹 2. Сохраняем токен
     setToken(jwt);
     setCurrentBank(bank);
     localStorage.setItem("token", jwt);
     localStorage.setItem("currentBank", bank);
-
-    // 🔹 3. Сохраняем JWT для этого банка
     saveBankToken(bank, jwt);
 
-    // 🔹 4. Создаём согласие
+    // 2️⃣ Создание согласия
     const consentResponse = await post("/account-consent", undefined, {
       "X-Bank-Code": bank,
       Authorization: `Bearer ${jwt}`,
     });
 
-    // 🔹 5. Если банк — sbank и согласие ручное
-    if (bank === "sbank" && !consentResponse.auto_approved) {
-      console.log("Ожидаем ручного подтверждения согласия от SBank...");
-
-      // ⚠️ возвращаем статус ожидания, чтобы фронт показал сообщение
-      return "waiting";
+    // 3️⃣ Если согласие auto_approved — сразу переход
+    if (consentResponse.status === "approved" || consentResponse.auto_approved) {
+      navigate("/dashboard");
+      return "ok";
     }
 
-    // 🔹 6. Для остальных — сразу переход
-    navigate("/dashboard");
-    return "ok";
+    // 4️⃣ Иначе — подключаем WebSocket для ожидания ручного согласия
+    if (wsRef.current) wsRef.current.close();
+    const socket = new WebSocket("ws://localhost:8080/ws");
+    wsRef.current = socket;
+    activeBankRef.current = bank;
+
+    socket.onopen = () => console.log(`✅ WebSocket для ${bank} открыт`);
+    socket.onclose = () => {
+      console.log(`❌ WebSocket закрыт для ${bank}`);
+      wsRef.current = null;
+      activeBankRef.current = null;
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (!msg.consent_id || !msg.status) return;
+
+        const current = activeBankRef.current;
+        if (!current) return;
+
+        if (msg.status === "approved") {
+          saveBankToken(current, jwt);
+          setToken(jwt);
+          setCurrentBank(current);
+          navigate("/dashboard");
+          socket.close();
+        }
+      } catch (err) {
+        console.error("Ошибка при обработке WebSocket-сообщения:", err);
+      }
+    };
+
+    return "waiting";
   };
 
   const logout = () => {
@@ -70,6 +100,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setBankTokens({});
     localStorage.clear();
     navigate("/login");
+    if (wsRef.current) wsRef.current.close();
   };
 
   return (
