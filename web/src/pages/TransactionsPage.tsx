@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAuth } from "../context/AuthContext";
 import { get } from "../api/client";
 import dayjs from "dayjs";
+import { motion } from "framer-motion";
 
 interface Account {
   accountId: string;
@@ -18,17 +19,26 @@ interface Transaction {
   currency: string;
   creditDebitIndicator: "Credit" | "Debit";
   transactionInformation: string;
+  merchantName?: string;
+  merchantCategory?: string;
+  merchantAddress?: string;
+  cardName?: string;
+  status?: string;
 }
 
-const ACCOUNT_TYPE_TRANSLATIONS: Record<string, string> = {
-  Checking: "Расчётный счёт",
-  Savings: "Сберегательный счёт",
-  Loan: "Кредитный счёт",
-  Card: "Карта",
-  Deposit: "Депозит",
-  Investment: "Инвестиционный счёт",
-  Personal: "Личный счёт",
-  Business: "Бизнес-счёт",
+const CATEGORY_TRANSLATIONS: Record<string, string> = {
+  taxi: "🚕 Такси",
+  cafe: "☕ Кафе",
+  restaurant: "🍽 Ресторан",
+  supermarket: "🛒 Супермаркет",
+  entertainment: "🎬 Развлечения",
+  transport: "🚌 Транспорт",
+  utilities: "🏠 ЖКХ",
+  salary: "💼 Зарплата",
+  transfer: "💸 Перевод",
+  clothing: "👔 Одежда",
+  grocery: "🥖 Продукты",
+  other: "📦 Прочее",
 };
 
 export default function TransactionsPage() {
@@ -39,24 +49,11 @@ export default function TransactionsPage() {
   const [fromDate, setFromDate] = useState(dayjs().subtract(1, "month").format("YYYY-MM-DD"));
   const [toDate, setToDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [loading, setLoading] = useState(false);
-
-  // --- Фильтры ---
   const [typeFilter, setTypeFilter] = useState<"all" | "credit" | "debit">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
-  // Возможные категории
-  const categories = [
-    "all", 
-    "💼 Зарплата", 
-    "💰 Подработка",
-    "🎬 Развлечения", 
-    "🚌 Транспорт", 
-    "🏠 ЖКХ",
-    "🏪 Продукты",
-  ];
-
-  // --- Получаем все счета ---
-    const fetchAccounts = async () => {
+  // --- Получаем счета ---
+  const fetchAccounts = async () => {
     if (!currentBank) return;
     const token = bankTokens[currentBank];
     if (!token) return;
@@ -66,20 +63,13 @@ export default function TransactionsPage() {
         Authorization: `Bearer ${token}`,
       });
 
-      const accountsData: Account[] = (res.accounts || []).map((a: any) => {
-        console.log(a.account_subtype);
-        const translatedType =
-          ACCOUNT_TYPE_TRANSLATIONS[a.account_subtype] ||
-          "Неизвестный тип";
-
-        return {
-          accountId: a.account_id,
-          nickname: `${translatedType || a.nickname}`,
-          status: a.status,
-          currency: a.currency,
-          bank: a.bank,
-        };
-      });
+      const accountsData: Account[] = (res.accounts || []).map((a: any) => ({
+        accountId: a.account_id,
+        nickname: a.nickname || a.account_subtype || "Без имени",
+        status: a.status,
+        currency: a.currency,
+        bank: a.bank,
+      }));
 
       setAccounts(accountsData);
 
@@ -91,7 +81,6 @@ export default function TransactionsPage() {
       console.error(err);
     }
   };
-
 
   // --- Получаем транзакции ---
   const fetchTransactions = async () => {
@@ -117,24 +106,22 @@ export default function TransactionsPage() {
       });
 
       const rawTx = res.data?.transaction || [];
-      const from = dayjs(fromDate).startOf("day");
-      const to = dayjs(toDate).endOf("day");
 
-      const allTx: Transaction[] = rawTx
-        .filter((tx: any) => {
-          const txDate = dayjs(tx.bookingDateTime);
-          return txDate.isValid() && txDate.isAfter(from.subtract(1, "ms")) && txDate.isBefore(to.add(1, "ms"));
-        })
-        .map((tx: any) => ({
-          transactionId: tx.transactionId,
-          bookingDateTime: tx.bookingDateTime,
-          amount: tx.amount.amount,
-          currency: tx.amount.currency,
-          creditDebitIndicator: tx.creditDebitIndicator,
-          transactionInformation: tx.transactionInformation || "-",
-        }));
+      const mapped: Transaction[] = rawTx.map((tx: any) => ({
+        transactionId: tx.transactionId,
+        bookingDateTime: tx.bookingDateTime,
+        amount: tx.amount.amount,
+        currency: tx.amount.currency,
+        creditDebitIndicator: tx.creditDebitIndicator,
+        transactionInformation: tx.transactionInformation || "-",
+        merchantName: tx.merchant?.name || "—",
+        merchantCategory: tx.merchant?.category || "other",
+        merchantAddress: tx.merchant?.address || "",
+        cardName: tx.card?.cardName || "—",
+        status: tx.status,
+      }));
 
-      setTransactions(allTx);
+      setTransactions(mapped);
     } catch (err) {
       console.error("Ошибка при загрузке транзакций:", err);
     } finally {
@@ -150,7 +137,14 @@ export default function TransactionsPage() {
     fetchTransactions();
   }, [selectedAccount, fromDate, toDate]);
 
-  // --- Фильтрация транзакций ---
+  // --- Автоматическое формирование категорий ---
+  const availableCategories = useMemo(() => {
+    const allCats = transactions.map((t) => t.merchantCategory);
+    const unique = Array.from(new Set(allCats)).filter(Boolean);
+    return ["all", ...unique];
+  }, [transactions]);
+
+  // --- Фильтрация ---
   const filteredTransactions = transactions.filter((tx) => {
     const matchType =
       typeFilter === "all" ||
@@ -158,24 +152,19 @@ export default function TransactionsPage() {
       (typeFilter === "debit" && tx.creditDebitIndicator === "Debit");
 
     const matchCategory =
-      categoryFilter === "all" ||
-      tx.transactionInformation.toLowerCase().includes(
-        categoryFilter
-          .replace(/[^\p{L}\p{N}]+/gu, "")
-          .toLowerCase()
-      );
+      categoryFilter === "all" || tx.merchantCategory === categoryFilter;
 
     return matchType && matchCategory;
   });
 
   return (
-    <div className="max-w-5xl mx-auto p-8">
+    <div className="max-w-6xl mx-auto p-8">
       <h1 className="text-3xl font-bold text-blue mb-6">Транзакции</h1>
 
       {/* Фильтры */}
-      <div className="flex flex-col sm:flex-row gap-4 mb-6">
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
         <select
-          className="w-full sm:w-1/3 bg-gray-800 text-white border border-gray-600 rounded-lg px-4 py-2"
+          className="flex-1 bg-gray-800 text-white border border-gray-600 rounded-lg px-4 py-2"
           value={selectedAccount ? `${selectedAccount.bank}_${selectedAccount.accountId}` : ""}
           onChange={(e) => {
             const [bank, accountId] = e.target.value.split("_");
@@ -183,30 +172,30 @@ export default function TransactionsPage() {
           }}
         >
           <option value="" disabled>
-            Выберите счет
+            Выберите счёт
           </option>
           {accounts.map((acc) => (
             <option key={`${acc.bank}_${acc.accountId}`} value={`${acc.bank}_${acc.accountId}`}>
-              {acc.nickname} {acc.currency} ({acc.bank.toUpperCase()})
+              {acc.nickname} ({acc.currency}, {acc.bank.toUpperCase()})
             </option>
           ))}
         </select>
 
         <input
           type="date"
-          className="w-full sm:w-1/4 bg-gray-800 text-white border border-gray-600 rounded-lg px-4 py-2"
+          className="bg-gray-800 text-white border border-gray-600 rounded-lg px-4 py-2"
           value={fromDate}
           onChange={(e) => setFromDate(e.target.value)}
         />
         <input
           type="date"
-          className="w-full sm:w-1/4 bg-gray-800 text-white border border-gray-600 rounded-lg px-4 py-2"
+          className="bg-gray-800 text-white border border-gray-600 rounded-lg px-4 py-2"
           value={toDate}
           onChange={(e) => setToDate(e.target.value)}
         />
 
         <select
-          className="w-full sm:w-1/4 bg-gray-800 text-white border border-gray-600 rounded-lg px-4 py-2"
+          className="bg-gray-800 text-white border border-gray-600 rounded-lg px-4 py-2"
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value as "all" | "credit" | "debit")}
         >
@@ -216,13 +205,13 @@ export default function TransactionsPage() {
         </select>
 
         <select
-          className="w-full sm:w-1/4 bg-gray-800 text-white border border-gray-600 rounded-lg px-4 py-2"
+          className="bg-gray-800 text-white border border-gray-600 rounded-lg px-4 py-2"
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
         >
-          {categories.map((cat) => (
+          {availableCategories.map((cat) => (
             <option key={cat} value={cat}>
-              {cat === "all" ? "Все категории" : cat}
+              {cat === "all" ? "Все категории" : CATEGORY_TRANSLATIONS[cat as string] || cat}
             </option>
           ))}
         </select>
@@ -234,32 +223,44 @@ export default function TransactionsPage() {
         <p className="text-blue">Нет транзакций за выбранный период.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="min-w-full bg-gray-900 text-white rounded-lg">
-            <thead>
+          <table className="min-w-full bg-gray-900 text-white rounded-lg shadow-lg">
+            <thead className="bg-gray-800">
               <tr className="border-b border-gray-700">
                 <th className="px-4 py-2 text-left">Дата</th>
-                <th className="px-4 py-2 text-left">Сумма</th>
-                <th className="px-4 py-2 text-left">Валюта</th>
                 <th className="px-4 py-2 text-left">Описание</th>
+                <th className="px-4 py-2 text-left">Магазин</th>
+                <th className="px-4 py-2 text-left">Категория</th>
+                <th className="px-4 py-2 text-left">Карта</th>
+                <th className="px-4 py-2 text-left">Статус</th>
+                <th className="px-4 py-2 text-left">Сумма</th>
               </tr>
             </thead>
             <tbody>
               {filteredTransactions.map((tx) => {
                 const isCredit = tx.creditDebitIndicator === "Credit";
+                const categoryName =
+                  CATEGORY_TRANSLATIONS[tx.merchantCategory || "other"] || tx.merchantCategory;
                 return (
-                  <tr key={tx.transactionId} className="border-b border-gray-700 hover:bg-gray-800 transition">
-                    <td className="px-4 py-2">{dayjs(tx.bookingDateTime).format("YYYY-MM-DD")}</td>
+                  <motion.tr
+                    key={tx.transactionId}
+                    className="border-b border-gray-700 hover:bg-gray-800 transition"
+                    whileHover={{ scale: 1.01 }}
+                  >
+                    <td className="px-4 py-2">{dayjs(tx.bookingDateTime).format("YYYY-MM-DD HH:mm")}</td>
+                    <td className="px-4 py-2">{tx.transactionInformation}</td>
+                    <td className="px-4 py-2">{tx.merchantName}</td>
+                    <td className="px-4 py-2">{categoryName}</td>
+                    <td className="px-4 py-2">{tx.cardName}</td>
+                    <td className="px-4 py-2">{tx.status === "completed" ? "✅ Завершено" : "⏳ В обработке"}</td>
                     <td
                       className={`px-4 py-2 font-semibold ${
                         isCredit ? "text-green-400" : "text-red-400"
                       }`}
                     >
                       {isCredit ? "+" : "-"}
-                      {tx.amount}
+                      {tx.amount} {tx.currency}
                     </td>
-                    <td className="px-4 py-2">{tx.currency}</td>
-                    <td className="px-4 py-2">{tx.transactionInformation}</td>
-                  </tr>
+                  </motion.tr>
                 );
               })}
             </tbody>
