@@ -1,6 +1,6 @@
 from typing import Optional
 
-import requests
+import httpx
 
 GO_API_BASE = "http://api:8080"
 
@@ -8,14 +8,15 @@ GO_API_BASE = "http://api:8080"
 class GoApiClient:
     def __init__(self, token: str):
         self.headers = {"Authorization": token}
+        self.client = httpx.AsyncClient()
 
-    def get_accounts(self):
-        resp = requests.get(f"{GO_API_BASE}/api/accounts", headers=self.headers)
+    async def get_accounts(self):
+        resp = await self.client.get(f"{GO_API_BASE}/api/accounts", headers=self.headers)
         resp.raise_for_status()
         return resp.json().get("accounts", [])
 
-    def get_balances(self, account_id: str, bank_code: str):
-        resp = requests.get(
+    async def get_balances(self, account_id: str, bank_code: str):
+        resp = await self.client.get(
             f"{GO_API_BASE}/api/accounts/{account_id}/balances",
             headers={**self.headers, "X-Bank-Code": bank_code}
         )
@@ -33,7 +34,7 @@ class GoApiClient:
         ]
         return available_balances
 
-    def get_transactions(
+    async def get_transactions(
         self,
         account_id: str,
         bank_code: str,
@@ -51,7 +52,7 @@ class GoApiClient:
         if date_to:
             params["to"] = date_to
 
-        resp = requests.get(
+        resp = await self.client.get(
             f"{GO_API_BASE}/api/accounts/{account_id}/transactions",
             headers={**self.headers, "X-Bank-Code": bank_code},
             params=params

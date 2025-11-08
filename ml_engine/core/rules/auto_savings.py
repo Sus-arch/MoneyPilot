@@ -1,6 +1,3 @@
-from datetime import datetime
-
-
 def recommend_auto_savings(client_data):
     balances = client_data.get("balances", [])
     transactions = client_data.get("transactions", [])
@@ -24,7 +21,6 @@ def recommend_auto_savings(client_data):
         monthly_savings = 0.2 * income
 
         return {
-            "id": "auto_savings",
             "title": "Рекомендация по сбережениям",
             "description": (
                 f"Вы тратите около {spending_ratio * 100:.0f}% от ежемесячного дохода.\n"

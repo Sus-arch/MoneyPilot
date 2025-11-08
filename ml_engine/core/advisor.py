@@ -20,21 +20,12 @@ def generate_advice(client_data: dict):
     }
     """
     recommendations = []
-    '''
-    rec = recommend_smart_payment(client_data)
-    if rec:
-        rec.update({
-        "id": len(recommendations) + 1,
-        "created_at": datetime.utcnow().isoformat() + "Z"
-        })
-        recommendations.append(rec)
-    '''
 
     for func in [
         recommend_smart_payment,
         recommend_auto_savings,
         recommend_entertainment_control,
-        recommend_stress_index
+        recommend_stress_index,
     ]:
         try:
             rec = func(client_data)

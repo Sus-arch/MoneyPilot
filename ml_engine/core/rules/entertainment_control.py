@@ -55,7 +55,6 @@ def recommend_entertainment_control(client_data):
         return None
 
     return {
-        "id": "entertainment_control",
         "title": "Контроль расходов на развлечения",
         "description": recommendation_text,
         "category": "expenses",
