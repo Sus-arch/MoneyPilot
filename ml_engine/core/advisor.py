@@ -1,32 +1,51 @@
-from rules.smart_payment import recommend_smart_payment
-from rules.auto_savings import recommend_auto_savings
-from rules.expense_control import recommend_expense_control
+from datetime import datetime
 
-def generate_advice(client_data):
+from core.rules.entertainment_control import recommend_entertainment_control
+from core.rules.smart_payment import recommend_smart_payment
+from core.rules.auto_savings import recommend_auto_savings
+from core.rules.stress_index import recommend_stress_index
+
+
+def generate_advice(client_data: dict):
+    """
+    Возвращает список рекомендаций в виде массива dict'ов.
+    Формат элемента списка:
+    {
+        "id": int,
+        "title": str,
+        "description": str,
+        "category": str,
+        "priority": str,
+        "created_at": str (ISO-8601)
+    }
+    """
     recommendations = []
-    accounts = client_data.get("accounts", [])
-    transactions = client_data.get("transactions", [])
-    products = client_data.get("products", [])
+    '''
+    rec = recommend_smart_payment(client_data)
+    if rec:
+        rec.update({
+        "id": len(recommendations) + 1,
+        "created_at": datetime.utcnow().isoformat() + "Z"
+        })
+        recommendations.append(rec)
+    '''
 
     for func in [
         recommend_smart_payment,
         recommend_auto_savings,
-        recommend_expense_control,
+        recommend_entertainment_control,
+        recommend_stress_index
     ]:
         try:
-            data = None
-            if "account" in func.__name__:
-                data = accounts
-            elif "transaction" in func.__name__:
-                data = transactions
-            elif "product" in func.__name__:
-                data = products
-
-            rec = func(data)
+            rec = func(client_data)
             if rec:
-                rec["id"] = len(recommendations) + 1
+                rec.update({
+                    "id": len(recommendations) + 1,
+                    "created_at": datetime.utcnow().isoformat() + "Z"
+                })
                 recommendations.append(rec)
         except Exception as e:
-            print(f"Error in {func.__name__}: {e}")
+            print(f"[advisor] Ошибка в {func.__name__}: {e}")
 
-    return {"status": "success", "data": recommendations}
+
+    return recommendations
