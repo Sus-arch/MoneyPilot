@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Header
+from fastapi.middleware.cors import CORSMiddleware
 import requests
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
@@ -7,6 +8,14 @@ from core.advisor import generate_advice
 from services.go_api_client import GoApiClient
 
 app = FastAPI(title="FinBalance ML Engine")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # адрес вашего фронта
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 GO_API_BASE = "http://api:8080"
 
