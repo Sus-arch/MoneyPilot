@@ -22,6 +22,13 @@ interface Recommendation {
   created_at: string;
 }
 
+interface Affordability {
+  title: string;
+  description: string;
+  category: string;
+  priority: "low" | "medium" | "high";
+}
+
 const ACCOUNT_SUBTYPE_RU: Record<string, string> = {
   Checking: "Текущий счёт",
   Savings: "Накопительный счёт",
@@ -48,6 +55,11 @@ export default function DashboardPage() {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loadingRecs, setLoadingRecs] = useState(false);
   const [errorRecs, setErrorRecs] = useState("");
+
+  const [purchaseAmount, setPurchaseAmount] = useState<string>("");
+  const [affordability, setAffordability] = useState<Affordability | null>(null);
+  const [loadingAfford, setLoadingAfford] = useState(false);
+  const [errorAfford, setErrorAfford] = useState("");
 
   // 🔹 Получение счетов
   const fetchAccounts = async () => {
@@ -118,6 +130,35 @@ export default function DashboardPage() {
       setErrorRecs("Не удалось загрузить рекомендации");
     } finally {
       setLoadingRecs(false);
+    }
+  };
+
+  // 🔹 Проверка возможности покупки
+  const checkAffordability = async () => {
+    if (!currentBank || !bankTokens[currentBank]) return;
+    setLoadingAfford(true);
+    setErrorAfford("");
+    setAffordability(null);
+
+    try {
+      const response = await fetch(
+        `http://localhost:8000/can_afford?amount=${purchaseAmount}`,
+        {
+          headers: {
+            Authorization: `Bearer ${bankTokens[currentBank]}`,
+          },
+        }
+      );
+
+      if (!response.ok) throw new Error("Ошибка при проверке покупки");
+
+      const data = await response.json();
+      setAffordability(data?.data || null);
+    } catch (err) {
+      console.error(err);
+      setErrorAfford("Не удалось проверить покупку");
+    } finally {
+      setLoadingAfford(false);
     }
   };
 
@@ -209,9 +250,9 @@ export default function DashboardPage() {
           )}
         </motion.div>
 
-        {/* Рекомендации */}
+        {/* Рекомендации + Возможность покупки */}
         <motion.div
-          className="bg-white rounded-2xl p-6 shadow-md"
+          className="bg-white rounded-2xl p-6 shadow-md space-y-6"
           initial={{ x: 50, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.2 }}
@@ -229,9 +270,7 @@ export default function DashboardPage() {
               <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
             </div>
           ) : recommendations.length === 0 ? (
-            <p className="text-center text-gray-600">
-              Рекомендаций пока нет.
-            </p>
+            <p className="text-center text-gray-600">Рекомендаций пока нет.</p>
           ) : (
             <div className="space-y-4">
               {recommendations.map((rec, i) => (
@@ -260,6 +299,52 @@ export default function DashboardPage() {
               ))}
             </div>
           )}
+
+          {/* 🔹 Блок проверки покупки */}
+          <div className="mt-6 border-t pt-4">
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">
+              Проверка покупки
+            </h3>
+            <div className="flex gap-2 items-center">
+            <input
+              type="number"
+              min={0}
+              value={purchaseAmount}
+              onChange={(e) => setPurchaseAmount(e.target.value)}
+              placeholder="Сумма покупки"
+              className="w-full bg-gray-100 border border-gray-300 rounded-lg px-3 py-2"
+            />
+
+            <button
+              onClick={checkAffordability}
+              disabled={loadingAfford || !purchaseAmount || parseFloat(purchaseAmount) <= 0}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-400"
+            >
+              Проверить
+            </button>
+
+            </div>
+            {loadingAfford && (
+              <div className="flex justify-center py-2">
+                <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+              </div>
+            )}
+            {errorAfford && <p className="text-red-500 mt-2">{errorAfford}</p>}
+            {affordability && (
+              <div
+                className={`mt-2 p-3 rounded-lg border ${
+                  affordability.priority === "high"
+                    ? "border-red-400 bg-red-50"
+                    : affordability.priority === "medium"
+                    ? "border-yellow-400 bg-yellow-50"
+                    : "border-green-400 bg-green-50"
+                }`}
+              >
+                <p className="font-semibold text-gray-800">{affordability.title}</p>
+                <p className="text-gray-700 whitespace-pre-line">{affordability.description}</p>
+              </div>
+            )}
+          </div>
         </motion.div>
       </div>
     </motion.div>
