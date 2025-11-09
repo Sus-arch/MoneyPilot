@@ -47,9 +47,9 @@ def can_afford_rule(client_data: dict, amount: float) -> dict:
         "title": "Оценка планируемой покупки",
         "description": (
             f"{verdict}\n"
-            f"Баланс: {total_balance:,.0f} ₽\n"
-            f"Безопасный лимит: {safe_limit:,.0f} ₽\n"
-            f"Сумма покупки: {amount:,.0f} ₽"
+            f"Баланс: {total_balance:.0f} ₽\n"
+            f"Безопасный лимит: {safe_limit:.0f} ₽\n"
+            f"Сумма покупки: {amount:.0f} ₽"
         ),
         "category": "affordability",
         "priority": priority,

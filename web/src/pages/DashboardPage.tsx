@@ -61,6 +61,16 @@ export default function DashboardPage() {
   const [loadingAfford, setLoadingAfford] = useState(false);
   const [errorAfford, setErrorAfford] = useState("");
 
+  // Состояние подписки, сохраняем в localStorage
+  const [isSubscribed, setIsSubscribed] = useState<boolean>(() => {
+    return localStorage.getItem("isSubscribed") === "true";
+  });
+
+  const handleSubscribe = () => {
+    setIsSubscribed(true);
+    localStorage.setItem("isSubscribed", "true");
+  };
+
   // 🔹 Получение счетов
   const fetchAccounts = async () => {
     if (!currentBank || !bankTokens[currentBank]) return;
@@ -167,6 +177,9 @@ export default function DashboardPage() {
     fetchRecommendations();
   }, [currentBank, bankTokens]);
 
+  // Ограничение рекомендаций для обычных пользователей
+  const displayedRecommendations = isSubscribed ? recommendations : recommendations.slice(0, 2);
+
   return (
     <motion.div
       className="max-w-6xl mx-auto p-8"
@@ -236,8 +249,7 @@ export default function DashboardPage() {
                     )}
                     <div>
                       <p className="font-semibold text-gray-800">
-                        {ACCOUNT_SUBTYPE_RU[acc.account_subtype] ||
-                          acc.account_subtype}
+                        {ACCOUNT_SUBTYPE_RU[acc.account_subtype] || acc.account_subtype}
                       </p>
                     </div>
                   </div>
@@ -273,7 +285,7 @@ export default function DashboardPage() {
             <p className="text-center text-gray-600">Рекомендаций пока нет.</p>
           ) : (
             <div className="space-y-4">
-              {recommendations.map((rec, i) => (
+              {displayedRecommendations.map((rec, i) => (
                 <motion.div
                   key={rec.id}
                   className={`p-4 border rounded-xl ${
@@ -292,11 +304,35 @@ export default function DashboardPage() {
                   </h3>
                   <p className="text-gray-600 text-sm mb-2">{rec.description}</p>
                   <p className="text-xs text-gray-500">
-                    Категория: {rec.category} •{" "}
-                    {new Date(rec.created_at).toLocaleDateString("ru-RU")}
+                    Категория: {rec.category} • {new Date(rec.created_at).toLocaleDateString("ru-RU")}
                   </p>
                 </motion.div>
               ))}
+
+              {/* Сообщение о подписке */}
+              {!isSubscribed && (
+                <motion.div
+                  className="mt-4 p-4 rounded-xl border border-yellow-400 bg-yellow-50 flex flex-col items-center justify-center text-center space-y-3"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6 }}
+                >
+                  <div className="flex items-center gap-2 justify-center">
+                    <PiggyBank className="w-6 h-6 text-yellow-600" />
+                    <p className="font-semibold text-gray-800 text-lg">
+                      Оформите подписку, чтобы увидеть все рекомендации!
+                    </p>
+                  </div>
+                  <motion.button
+                    onClick={handleSubscribe}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 transition shadow-md"
+                  >
+                    Подписка 299₽/мес
+                  </motion.button>
+                </motion.div>
+              )}
             </div>
           )}
 
@@ -306,23 +342,21 @@ export default function DashboardPage() {
               Проверка покупки
             </h3>
             <div className="flex gap-2 items-center">
-            <input
-              type="number"
-              min={0}
-              value={purchaseAmount}
-              onChange={(e) => setPurchaseAmount(e.target.value)}
-              placeholder="Сумма покупки"
-              className="w-full bg-gray-100 border border-gray-300 rounded-lg px-3 py-2"
-            />
-
-            <button
-              onClick={checkAffordability}
-              disabled={loadingAfford || !purchaseAmount || parseFloat(purchaseAmount) <= 0}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-400"
-            >
-              Проверить
-            </button>
-
+              <input
+                type="number"
+                min={0}
+                value={purchaseAmount}
+                onChange={(e) => setPurchaseAmount(e.target.value)}
+                placeholder="Сумма покупки"
+                className="w-full bg-gray-100 border border-gray-300 rounded-lg px-3 py-2"
+              />
+              <button
+                onClick={checkAffordability}
+                disabled={loadingAfford || !purchaseAmount || parseFloat(purchaseAmount) <= 0}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-400"
+              >
+                Проверить
+              </button>
             </div>
             {loadingAfford && (
               <div className="flex justify-center py-2">
