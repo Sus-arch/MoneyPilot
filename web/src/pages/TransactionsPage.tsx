@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
-import { get } from "../api/client";
+import { get, debouncedGet } from "../api/client";
 import dayjs from "dayjs";
 import { motion } from "framer-motion";
 
@@ -52,11 +52,18 @@ export default function TransactionsPage() {
   const [typeFilter, setTypeFilter] = useState<"all" | "credit" | "debit">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
+  const fetchingAccountsRef = useRef(false);
+  const fetchingTransactionsRef = useRef(false);
+  const lastAccountRef = useRef<string | null>(null);
+
   // --- Получаем счета ---
   const fetchAccounts = async () => {
-    if (!currentBank || !bankTokens[currentBank]) return;
+    if (!currentBank) return;
     const token = bankTokens[currentBank];
     if (!token) return;
+
+    if (fetchingAccountsRef.current) return;
+    fetchingAccountsRef.current = true;
 
     try {
       const res = await get("/accounts", {
@@ -77,30 +84,44 @@ export default function TransactionsPage() {
         const first = accountsData[0];
         setSelectedAccount({ bank: first.bank, accountId: first.accountId });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+    } finally {
+      fetchingAccountsRef.current = false;
     }
   };
 
-  // --- Получаем транзакции (берём то, что возвращает API) ---
+  // --- Получаем транзакции ---
   const fetchTransactions = async () => {
     if (!selectedAccount) return;
-    if (!currentBank || !bankTokens[currentBank]) return;
-
     const { bank, accountId } = selectedAccount;
+    const token = bankTokens[currentBank || bank];
+    if (!token) return;
+
+    const accountKey = `${bank}_${accountId}_${fromDate}_${toDate}`;
+
+    if (fetchingTransactionsRef.current && lastAccountRef.current === accountKey) return;
+
+    fetchingTransactionsRef.current = true;
+    lastAccountRef.current = accountKey;
     setLoading(true);
     setTransactions([]);
 
     try {
-      // Запрашиваем транзакции (API, похоже, возвращает всё — мы фильтруем локально)
-      const res = await get(`/accounts/${accountId}/transactions`, {
-        Authorization: `Bearer ${bankTokens[currentBank]}`,
+      const query = new URLSearchParams({
+        from: `${fromDate}T00:00:00Z`,
+        to: `${toDate}T23:59:59Z`,
+        page: "0",
+        limit: "100",
+      }).toString();
+
+      const res = await debouncedGet(`/accounts/${accountId}/transactions?${query}`, {
+        Authorization: `Bearer ${token}`,
         "X-Bank-Code": bank,
-      });
+      }, 500);
 
       const rawTx = res.data?.transaction || [];
 
-      // Нормализуем важные поля в нижний регистр для корректной фильтрации
       const mapped: Transaction[] = rawTx.map((tx: any) => ({
         transactionId: tx.transactionId,
         bookingDateTime: tx.bookingDateTime,
@@ -116,54 +137,53 @@ export default function TransactionsPage() {
       }));
 
       setTransactions(mapped);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Ошибка при загрузке транзакций:", err);
+      if (err.message?.includes("Rate limit")) {
+        setTransactions([]);
+      }
     } finally {
       setLoading(false);
+      fetchingTransactionsRef.current = false;
     }
   };
 
   useEffect(() => {
     fetchAccounts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentBank, bankTokens]);
+  }, [currentBank]);
 
   useEffect(() => {
-    fetchTransactions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAccount]);
+    const timer = setTimeout(() => {
+      fetchTransactions();
+    }, 500);
 
-  // --- Доступные категории (нижний регистр) ---
+    return () => clearTimeout(timer);
+  }, [selectedAccount, fromDate, toDate]);
+
+  // --- Доступные категории ---
   const availableCategories = useMemo(() => {
     const allCats = transactions.map((t) => (t.merchantCategory || "other").toString().toLowerCase());
     const unique = Array.from(new Set(allCats));
     return ["all", ...unique];
   }, [transactions]);
 
-  // --- Фильтрация (локально, по дате, типу, категории) ---
+  // --- Фильтрация транзакций ---
   const filteredTransactions = useMemo(() => {
-    // нормализованные границы
     const from = fromDate ? dayjs(fromDate).startOf("day") : null;
     const to = toDate ? dayjs(toDate).endOf("day") : null;
 
     return transactions.filter((tx) => {
-      // проверяем корректность даты транзакции
       const txMoment = tx.bookingDateTime ? dayjs(tx.bookingDateTime) : null;
       if (!txMoment || !txMoment.isValid()) return false;
 
-      // фильтр по датам (включительно)
       if (from && txMoment.isBefore(from)) return false;
       if (to && txMoment.isAfter(to)) return false;
 
-      // фильтр по типу (credit/debit)
-      if (typeFilter !== "all" && tx.creditDebitIndicator.toLowerCase() !== typeFilter.toLowerCase()) {
-        return false;
-      }
+      const type = (tx.creditDebitIndicator || "").toString().toLowerCase();
+      if (typeFilter !== "all" && type !== typeFilter.toLowerCase()) return false;
 
-      // фильтр по категории
-      if (categoryFilter !== "all" && (tx.merchantCategory || "other").toLowerCase() !== categoryFilter.toLowerCase()) {
-        return false;
-      }
+      const cat = (tx.merchantCategory || "other").toString().toLowerCase();
+      if (categoryFilter !== "all" && cat !== categoryFilter.toLowerCase()) return false;
 
       return true;
     });
@@ -209,7 +229,7 @@ export default function TransactionsPage() {
         <select
           className="bg-gray-800 text-white border border-gray-600 rounded-lg px-4 py-2"
           value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as any)}
+          onChange={(e) => setTypeFilter(e.target.value as "all" | "credit" | "debit")}
         >
           <option value="all">Все операции</option>
           <option value="credit">Поступления</option>
@@ -250,9 +270,7 @@ export default function TransactionsPage() {
             <tbody>
               {filteredTransactions.map((tx) => {
                 const isCredit = tx.creditDebitIndicator === "credit";
-                const catKey = (tx.merchantCategory || "other").toString().toLowerCase();
-                const categoryName = CATEGORY_TRANSLATIONS[catKey] || catKey;
-
+                const categoryName = CATEGORY_TRANSLATIONS[tx.merchantCategory || "other"] || tx.merchantCategory;
                 return (
                   <motion.tr
                     key={tx.transactionId}
@@ -265,9 +283,7 @@ export default function TransactionsPage() {
                     <td className="px-4 py-2">{categoryName}</td>
                     <td className="px-4 py-2">{tx.cardName}</td>
                     <td className="px-4 py-2">{tx.status === "completed" ? "✅ Завершено" : "⏳ В обработке"}</td>
-                    <td
-                      className={`px-4 py-2 font-semibold ${isCredit ? "text-green-400" : "text-red-400"}`}
-                    >
+                    <td className={`px-4 py-2 font-semibold ${isCredit ? "text-green-400" : "text-red-400"}`}>
                       {isCredit ? "+" : "-"}
                       {tx.amount} {tx.currency}
                     </td>

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
-import { get } from "../api/client";
+import { get, clearCache } from "../api/client";
 import {
   CreditCard,
   Landmark,
@@ -64,9 +64,17 @@ export default function AccountsPage() {
   const [loading, setLoading] = useState(false);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [error, setError] = useState("");
+  const fetchingRef = useRef(false);
+  const lastBankRef = useRef<string | null>(null);
 
   const fetchAccounts = async () => {
     if (!token || !currentBank || !bankTokens[currentBank]) return;
+    
+    // Предотвращаем дублирующие запросы
+    if (fetchingRef.current) return;
+    if (lastBankRef.current === currentBank && accounts.length > 0) return;
+    
+    fetchingRef.current = true;
     setLoading(true);
     setError("");
 
@@ -85,19 +93,34 @@ export default function AccountsPage() {
       }));
 
       setAccounts(accountsData);
-    } catch {
-      setError("Не удалось получить список счетов");
+      lastBankRef.current = currentBank;
+    } catch (err: any) {
+      if (err.message?.includes("Rate limit")) {
+        setError("Слишком много запросов. Подождите немного.");
+      } else {
+        setError("Не удалось получить список счетов");
+      }
     } finally {
       setLoading(false);
+      fetchingRef.current = false;
     }
   };
 
   useEffect(() => {
+    // Очищаем кэш при смене банка
+    if (lastBankRef.current && lastBankRef.current !== currentBank) {
+      clearCache("/accounts");
+      lastBankRef.current = null;
+    }
     fetchAccounts();
-  }, [token, currentBank, bankTokens]);
+  }, [currentBank]);
 
   const handleSelectAccount = async (account: Account) => {
     if (!token || !bankTokens[account.bank]) return;
+    
+    // Если уже загружаем этот же счет, не делаем повторный запрос
+    if (loadingDetails && selectedAccount?.account_id === account.account_id) return;
+    
     setLoadingDetails(true);
     setError("");
     setSelectedAccount(null);
@@ -131,8 +154,12 @@ export default function AccountsPage() {
         opening_date: details.openingDate,
         balance: balances,
       });
-    } catch {
-      setError("Не удалось получить данные по счёту");
+    } catch (err: any) {
+      if (err.message?.includes("Rate limit")) {
+        setError("Слишком много запросов. Подождите немного.");
+      } else {
+        setError("Не удалось получить данные по счёту");
+      }
     } finally {
       setLoadingDetails(false);
     }
