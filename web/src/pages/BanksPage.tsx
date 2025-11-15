@@ -74,9 +74,13 @@ export default function BanksPage() {
 
       // 3️⃣ Подключаем WebSocket для ожидания события
       connectWebSocket(bankId);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setMessage("❌ Ошибка при подключении банка");
+      if (err.message?.includes("Rate limit") || err.message?.includes("429")) {
+        setMessage("❌ Слишком много запросов. Подождите немного перед повторной попыткой.");
+      } else {
+        setMessage("❌ Ошибка при подключении банка");
+      }
     } finally {
       setLoading(null);
       setShowLogin(null);
@@ -102,9 +106,13 @@ export default function BanksPage() {
       );
 
       setMessage(`⚠️ Согласие для ${bankId.toUpperCase()} отозвано`);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setMessage("❌ Ошибка при отзыве согласия");
+      if (err.message?.includes("Rate limit") || err.message?.includes("429")) {
+        setMessage("❌ Слишком много запросов. Подождите немного.");
+      } else {
+        setMessage("❌ Ошибка при отзыве согласия");
+      }
     } finally {
       setLoading(null);
     }

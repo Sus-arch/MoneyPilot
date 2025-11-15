@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
-import { get } from "../api/client";
+import { get, debouncedGet } from "../api/client";
 import dayjs from "dayjs";
 import { motion } from "framer-motion";
 
@@ -17,7 +17,7 @@ interface Transaction {
   bookingDateTime: string;
   amount: string;
   currency: string;
-  creditDebitIndicator: "Credit" | "Debit";
+  creditDebitIndicator: "credit" | "debit";
   transactionInformation: string;
   merchantName?: string;
   merchantCategory?: string;
@@ -52,11 +52,18 @@ export default function TransactionsPage() {
   const [typeFilter, setTypeFilter] = useState<"all" | "credit" | "debit">("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
+  const fetchingAccountsRef = useRef(false);
+  const fetchingTransactionsRef = useRef(false);
+  const lastAccountRef = useRef<string | null>(null);
+
   // --- Получаем счета ---
   const fetchAccounts = async () => {
     if (!currentBank) return;
     const token = bankTokens[currentBank];
     if (!token) return;
+
+    if (fetchingAccountsRef.current) return;
+    fetchingAccountsRef.current = true;
 
     try {
       const res = await get("/accounts", {
@@ -77,8 +84,10 @@ export default function TransactionsPage() {
         const first = accountsData[0];
         setSelectedAccount({ bank: first.bank, accountId: first.accountId });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+    } finally {
+      fetchingAccountsRef.current = false;
     }
   };
 
@@ -89,6 +98,12 @@ export default function TransactionsPage() {
     const token = bankTokens[currentBank || bank];
     if (!token) return;
 
+    const accountKey = `${bank}_${accountId}_${fromDate}_${toDate}`;
+
+    if (fetchingTransactionsRef.current && lastAccountRef.current === accountKey) return;
+
+    fetchingTransactionsRef.current = true;
+    lastAccountRef.current = accountKey;
     setLoading(true);
     setTransactions([]);
 
@@ -100,62 +115,79 @@ export default function TransactionsPage() {
         limit: "100",
       }).toString();
 
-      const res = await get(`/accounts/${accountId}/transactions?${query}`, {
+      const res = await debouncedGet(`/accounts/${accountId}/transactions?${query}`, {
         Authorization: `Bearer ${token}`,
         "X-Bank-Code": bank,
-      });
+      }, 500);
 
       const rawTx = res.data?.transaction || [];
 
       const mapped: Transaction[] = rawTx.map((tx: any) => ({
         transactionId: tx.transactionId,
         bookingDateTime: tx.bookingDateTime,
-        amount: tx.amount.amount,
-        currency: tx.amount.currency,
-        creditDebitIndicator: tx.creditDebitIndicator,
+        amount: tx.amount?.amount ?? "0",
+        currency: tx.amount?.currency ?? "RUB",
+        creditDebitIndicator: (tx.creditDebitIndicator || "").toString().toLowerCase() === "credit" ? "credit" : "debit",
         transactionInformation: tx.transactionInformation || "-",
         merchantName: tx.merchant?.name || "—",
-        merchantCategory: tx.merchant?.category || "other",
+        merchantCategory: (tx.merchant?.category || "other").toString().toLowerCase(),
         merchantAddress: tx.merchant?.address || "",
         cardName: tx.card?.cardName || "—",
-        status: tx.status,
+        status: tx.status || "",
       }));
 
       setTransactions(mapped);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Ошибка при загрузке транзакций:", err);
+      if (err.message?.includes("Rate limit")) {
+        setTransactions([]);
+      }
     } finally {
       setLoading(false);
+      fetchingTransactionsRef.current = false;
     }
   };
 
   useEffect(() => {
     fetchAccounts();
-  }, [currentBank, bankTokens]);
+  }, [currentBank]);
 
   useEffect(() => {
-    fetchTransactions();
+    const timer = setTimeout(() => {
+      fetchTransactions();
+    }, 500);
+
+    return () => clearTimeout(timer);
   }, [selectedAccount, fromDate, toDate]);
 
-  // --- Автоматическое формирование категорий ---
+  // --- Доступные категории ---
   const availableCategories = useMemo(() => {
-    const allCats = transactions.map((t) => t.merchantCategory);
-    const unique = Array.from(new Set(allCats)).filter(Boolean);
+    const allCats = transactions.map((t) => (t.merchantCategory || "other").toString().toLowerCase());
+    const unique = Array.from(new Set(allCats));
     return ["all", ...unique];
   }, [transactions]);
 
-  // --- Фильтрация ---
-  const filteredTransactions = transactions.filter((tx) => {
-    const matchType =
-      typeFilter === "all" ||
-      (typeFilter === "credit" && tx.creditDebitIndicator === "Credit") ||
-      (typeFilter === "debit" && tx.creditDebitIndicator === "Debit");
+  // --- Фильтрация транзакций ---
+  const filteredTransactions = useMemo(() => {
+    const from = fromDate ? dayjs(fromDate).startOf("day") : null;
+    const to = toDate ? dayjs(toDate).endOf("day") : null;
 
-    const matchCategory =
-      categoryFilter === "all" || tx.merchantCategory === categoryFilter;
+    return transactions.filter((tx) => {
+      const txMoment = tx.bookingDateTime ? dayjs(tx.bookingDateTime) : null;
+      if (!txMoment || !txMoment.isValid()) return false;
 
-    return matchType && matchCategory;
-  });
+      if (from && txMoment.isBefore(from)) return false;
+      if (to && txMoment.isAfter(to)) return false;
+
+      const type = (tx.creditDebitIndicator || "").toString().toLowerCase();
+      if (typeFilter !== "all" && type !== typeFilter.toLowerCase()) return false;
+
+      const cat = (tx.merchantCategory || "other").toString().toLowerCase();
+      if (categoryFilter !== "all" && cat !== categoryFilter.toLowerCase()) return false;
+
+      return true;
+    });
+  }, [transactions, fromDate, toDate, typeFilter, categoryFilter]);
 
   return (
     <div className="max-w-6xl mx-auto p-8">
@@ -211,7 +243,7 @@ export default function TransactionsPage() {
         >
           {availableCategories.map((cat) => (
             <option key={cat} value={cat}>
-              {cat === "all" ? "Все категории" : CATEGORY_TRANSLATIONS[cat as string] || cat}
+              {cat === "all" ? "Все категории" : CATEGORY_TRANSLATIONS[cat] || cat}
             </option>
           ))}
         </select>
@@ -237,9 +269,8 @@ export default function TransactionsPage() {
             </thead>
             <tbody>
               {filteredTransactions.map((tx) => {
-                const isCredit = tx.creditDebitIndicator === "Credit";
-                const categoryName =
-                  CATEGORY_TRANSLATIONS[tx.merchantCategory || "other"] || tx.merchantCategory;
+                const isCredit = tx.creditDebitIndicator === "credit";
+                const categoryName = CATEGORY_TRANSLATIONS[tx.merchantCategory || "other"] || tx.merchantCategory;
                 return (
                   <motion.tr
                     key={tx.transactionId}
@@ -252,11 +283,7 @@ export default function TransactionsPage() {
                     <td className="px-4 py-2">{categoryName}</td>
                     <td className="px-4 py-2">{tx.cardName}</td>
                     <td className="px-4 py-2">{tx.status === "completed" ? "✅ Завершено" : "⏳ В обработке"}</td>
-                    <td
-                      className={`px-4 py-2 font-semibold ${
-                        isCredit ? "text-green-400" : "text-red-400"
-                      }`}
-                    >
+                    <td className={`px-4 py-2 font-semibold ${isCredit ? "text-green-400" : "text-red-400"}`}>
                       {isCredit ? "+" : "-"}
                       {tx.amount} {tx.currency}
                     </td>

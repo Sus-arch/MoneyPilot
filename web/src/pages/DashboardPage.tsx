@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
-import { get } from "../api/client";
+import { get, clearCache } from "../api/client";
 import { CreditCard, Banknote, PiggyBank, Wallet, Landmark, Loader2 } from "lucide-react";
 
 interface Account {
@@ -71,9 +71,18 @@ export default function DashboardPage() {
     localStorage.setItem("isSubscribed", "true");
   };
 
+  const fetchingAccountsRef = useRef(false);
+  const lastBankRef = useRef<string | null>(null);
+
   // 🔹 Получение счетов
   const fetchAccounts = async () => {
     if (!currentBank || !bankTokens[currentBank]) return;
+    
+    // Предотвращаем дублирующие запросы
+    if (fetchingAccountsRef.current) return;
+    if (lastBankRef.current === currentBank && accounts.length > 0) return;
+    
+    fetchingAccountsRef.current = true;
     setLoadingAccounts(true);
     setErrorAccounts("");
 
@@ -84,43 +93,65 @@ export default function DashboardPage() {
 
       const rawAccounts: Account[] = res.accounts || [];
 
-      const accountsWithBalances = await Promise.all(
-        rawAccounts.map(async (acc) => {
-          try {
-            const balanceRes = await get(`/accounts/${acc.account_id}/balances`, {
-              Authorization: `Bearer ${bankTokens[acc.bank || currentBank]}`,
-              "X-Bank-Code": (acc.bank || currentBank).toLowerCase(),
-            });
+      // Ограничиваем параллельные запросы балансов (максимум 3 одновременно)
+      const accountsWithBalances: Account[] = [];
+      const batchSize = 3;
+      
+      for (let i = 0; i < rawAccounts.length; i += batchSize) {
+        const batch = rawAccounts.slice(i, i + batchSize);
+        const batchResults = await Promise.all(
+          batch.map(async (acc) => {
+            try {
+              const balanceRes = await get(`/accounts/${acc.account_id}/balances`, {
+                Authorization: `Bearer ${bankTokens[acc.bank || currentBank]}`,
+                "X-Bank-Code": (acc.bank || currentBank).toLowerCase(),
+              });
 
-            const available = balanceRes.data?.balance?.find(
-              (b: any) => b.type === "InterimAvailable"
-            );
-            const balance = available ? parseFloat(available.amount.amount) : 0;
-            return { ...acc, balance };
-          } catch {
-            return { ...acc, balance: 0 };
-          }
-        })
-      );
+              const available = balanceRes.data?.balance?.find(
+                (b: any) => b.type === "InterimAvailable"
+              );
+              const balance = available ? parseFloat(available.amount.amount) : 0;
+              return { ...acc, balance };
+            } catch (err: any) {
+              // Игнорируем ошибки для отдельных балансов
+              return { ...acc, balance: 0 };
+            }
+          })
+        );
+        accountsWithBalances.push(...batchResults);
+      }
 
       setAccounts(accountsWithBalances);
+      lastBankRef.current = currentBank;
 
       const total = accountsWithBalances
         .filter((a) => a.currency === "RUB")
         .reduce((sum, a) => sum + (a.balance || 0), 0);
 
       setTotalBalance(total);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setErrorAccounts("Не удалось загрузить счета");
+      if (err.message?.includes("Rate limit")) {
+        setErrorAccounts("Слишком много запросов. Подождите немного.");
+      } else {
+        setErrorAccounts("Не удалось загрузить счета");
+      }
     } finally {
       setLoadingAccounts(false);
+      fetchingAccountsRef.current = false;
     }
   };
+
+  const fetchingRecsRef = useRef(false);
 
   // 🔹 Получение рекомендаций
   const fetchRecommendations = async () => {
     if (!currentBank || !bankTokens[currentBank]) return;
+    
+    // Предотвращаем дублирующие запросы
+    if (fetchingRecsRef.current) return;
+    
+    fetchingRecsRef.current = true;
     setLoadingRecs(true);
     setErrorRecs("");
 
@@ -131,15 +162,25 @@ export default function DashboardPage() {
         },
       });
 
-      if (!response.ok) throw new Error("Ошибка при загрузке рекомендаций");
+      if (!response.ok) {
+        if (response.status === 429) {
+          throw new Error("Rate limit exceeded");
+        }
+        throw new Error("Ошибка при загрузке рекомендаций");
+      }
 
       const data = await response.json();
       setRecommendations(data?.data || []);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setErrorRecs("Не удалось загрузить рекомендации");
+      if (err.message?.includes("Rate limit")) {
+        setErrorRecs("Слишком много запросов. Подождите немного.");
+      } else {
+        setErrorRecs("Не удалось загрузить рекомендации");
+      }
     } finally {
       setLoadingRecs(false);
+      fetchingRecsRef.current = false;
     }
   };
 
@@ -173,9 +214,14 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
+    // Очищаем кэш при смене банка
+    if (lastBankRef.current && lastBankRef.current !== currentBank) {
+      clearCache("/accounts");
+      lastBankRef.current = null;
+    }
     fetchAccounts();
     fetchRecommendations();
-  }, [currentBank, bankTokens]);
+  }, [currentBank]);
 
   // Ограничение рекомендаций для обычных пользователей
   const displayedRecommendations = isSubscribed ? recommendations : recommendations.slice(0, 2);

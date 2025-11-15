@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
-import { post, get } from "../api/client";
+import { post, get, clearCache } from "../api/client";
 import {
   Banknote,
   CreditCard,
@@ -66,6 +66,8 @@ export default function ProductsPage() {
   const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<Record<string, Product[]>>({});
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const fetchingProductsRef = useRef(false);
+  const lastBanksRef = useRef<string>("");
 
   const [consentCollapsed, setConsentCollapsed] = useState(false);
 
@@ -118,20 +120,36 @@ export default function ProductsPage() {
       setResult(response);
 
       if (response.status === "approved") {
+        // Очищаем кэш продуктов при успешном согласии
+        clearCache("/products");
         await fetchProducts();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError("Ошибка при отправке согласия. Попробуйте позже.");
+      if (err.message?.includes("Rate limit")) {
+        setError("Слишком много запросов. Подождите немного.");
+      } else {
+        setError("Ошибка при отправке согласия. Попробуйте позже.");
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const fetchProducts = async () => {
+    // Предотвращаем дублирующие запросы
+    if (fetchingProductsRef.current) return;
+    
+    const banksKey = connectedBanks.map(b => b.id).sort().join(",");
+    if (lastBanksRef.current === banksKey && Object.keys(products).length > 0) {
+      return;
+    }
+    
+    fetchingProductsRef.current = true;
     setLoadingProducts(true);
     const all: Record<string, Product[]> = {};
 
+    // Обрабатываем банки последовательно, чтобы не перегружать API
     for (const bank of connectedBanks) {
       const token = bankTokens[bank.id];
       if (!token) continue;
@@ -146,13 +164,19 @@ export default function ProductsPage() {
         if (res.data && Array.isArray(res.data)) {
           all[bank.id] = res.data;
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error(`Ошибка при получении продуктов ${bank.name}:`, err);
+        if (err.message?.includes("Rate limit")) {
+          // Пропускаем этот банк при rate limit
+          continue;
+        }
       }
     }
 
     setProducts(all);
+    lastBanksRef.current = banksKey;
     setLoadingProducts(false);
+    fetchingProductsRef.current = false;
   };
 
   const fetchProductDetails = async (bankId: string, agreementId: string) => {
@@ -185,7 +209,11 @@ export default function ProductsPage() {
   };
 
   useEffect(() => {
-    fetchProducts();
+    // Обновляем продукты только при изменении списка подключенных банков
+    const banksKey = connectedBanks.map(b => b.id).sort().join(",");
+    if (lastBanksRef.current !== banksKey) {
+      fetchProducts();
+    }
   }, [connectedBanks.length]);
 
   return (
