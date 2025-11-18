@@ -18,15 +18,19 @@ type Service struct {
 	Repo        *storage.Repository
 	TokenSvc    *bankapi.TokenService
 	BankClients map[string]*bankapi.BankClient
-	HTTPClient  *http.Client
+	HTTPWrapper *bankapi.ClientWrapper
 }
 
 func NewService(repo *storage.Repository, ts *bankapi.TokenService, clients map[string]*bankapi.BankClient) *Service {
+	// Для согласий кэширование не используется, но нужны retry, rate limiting и circuit breaker
+	config := bankapi.DefaultConfig()
+	httpWrapper := bankapi.NewClientWrapper(nil, config) // nil cacheService, так как кэш не нужен
+
 	return &Service{
 		Repo:        repo,
 		TokenSvc:    ts,
 		BankClients: clients,
-		HTTPClient:  &http.Client{Timeout: 15 * time.Second},
+		HTTPWrapper: httpWrapper,
 	}
 }
 
@@ -87,7 +91,8 @@ func (s *Service) CreateConsent(ctx context.Context, userID int, bankCode string
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+tokenObj.Token)
 
-	resp, err := s.HTTPClient.Do(httpReq)
+	// Используем обертку с retry, rate limiting и circuit breaker (без кэширования)
+	resp, err := s.HTTPWrapper.Do(ctx, bankCode, httpReq, "", false)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +150,10 @@ func (s *Service) revokeConsent(bankClient *bankapi.BankClient, consentID string
 	url := fmt.Sprintf(strings.TrimRight(bankClient.BaseURL, "/") + "/product-agreement-consents/" + consentID + "?client_id=%s")
 	req, _ := http.NewRequest(http.MethodDelete, url, nil)
 	req.Header.Set("Authorization", "Bearer "+tokenObj.Token)
-	resp, err := s.HTTPClient.Do(req)
+
+	// Используем обертку с retry, rate limiting и circuit breaker (без кэширования)
+	ctx := context.Background()
+	resp, err := s.HTTPWrapper.Do(ctx, bankClient.Name, req, "", false)
 	if err != nil {
 		return err
 	}

@@ -12,6 +12,7 @@ import (
 	"MoneyPilot/internal/accounts"
 	"MoneyPilot/internal/auth"
 	bankapi "MoneyPilot/internal/bankapi"
+	"MoneyPilot/internal/cache"
 	"MoneyPilot/internal/poller"
 	"MoneyPilot/internal/productagreements"
 	"MoneyPilot/internal/productconsents"
@@ -35,6 +36,7 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	// --- Инициализация зависимостей ---
 	repo := storage.NewRepository(db)
 	ts := bankapi.NewTokenService(rdb)
+	cacheService := cache.NewCacheService(db)
 
 	authService := auth.NewAuthService(db, jwtSecret)
 	authHandler := auth.NewHandler(authService)
@@ -46,13 +48,13 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 
 	// --- Handlers ---
 	consentHandler := accountconsents.NewConsentHandler(repo, ts, bankapi.Banks)
-	accountService := accounts.NewService(repo, ts, bankapi.Banks)
+	accountService := accounts.NewService(repo, ts, bankapi.Banks, cacheService)
 	accountHandler := accounts.NewHandler(accountService)
 
 	productConsentsService := productconsents.NewService(repo, ts, bankapi.Banks)
 	productConsentsHandler := productconsents.NewHandler(productConsentsService)
 
-	productAgreementService := productagreements.NewService(repo, ts, bankapi.Banks)
+	productAgreementService := productagreements.NewService(repo, ts, bankapi.Banks, cacheService)
 	productAgreementHandler := productagreements.NewHandler(productAgreementService)
 	// --- WebSocket Hub ---
 	wsHub := websockets.NewHub()

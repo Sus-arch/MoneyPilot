@@ -2,28 +2,36 @@ package productagreements
 
 import (
 	"MoneyPilot/internal/bankapi"
+	"MoneyPilot/internal/cache"
 	"MoneyPilot/internal/storage"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
 )
 
 type Service struct {
-	Repo        *storage.Repository
-	TokenSvc    *bankapi.TokenService
-	BankClients map[string]*bankapi.BankClient
-	HTTPClient  *http.Client
+	Repo         *storage.Repository
+	TokenSvc     *bankapi.TokenService
+	BankClients  map[string]*bankapi.BankClient
+	HTTPWrapper  *bankapi.ClientWrapper
+	CacheService *cache.CacheService
 }
 
-func NewService(repo *storage.Repository, ts *bankapi.TokenService, clients map[string]*bankapi.BankClient) *Service {
+func NewService(repo *storage.Repository, ts *bankapi.TokenService, clients map[string]*bankapi.BankClient, cacheService *cache.CacheService) *Service {
+	config := bankapi.DefaultConfig()
+	httpWrapper := bankapi.NewClientWrapper(cacheService, config)
+
 	return &Service{
-		Repo:        repo,
-		TokenSvc:    ts,
-		BankClients: clients,
-		HTTPClient:  &http.Client{},
+		Repo:         repo,
+		TokenSvc:     ts,
+		BankClients:  clients,
+		HTTPWrapper:  httpWrapper,
+		CacheService: cacheService,
 	}
 }
 
@@ -60,7 +68,12 @@ func (s *Service) GetProducts(userID int, bankCode string) ([]Product, error) {
 	req.Header.Set("x-product-agreement-consent-id", consent.ConsentID)
 	req.Header.Set("x-requesting-bank", "team081")
 
-	resp, err := s.HTTPClient.Do(req)
+	// Генерируем ключ кэша
+	cacheKey := fmt.Sprintf("products:%s:%s:%d", bankCode, user.ClientID, userID)
+	ctx := context.Background()
+
+	// Используем обертку с кэшированием, retry, rate limiting и circuit breaker
+	resp, err := s.HTTPWrapper.Do(ctx, bankCode, req, cacheKey, true)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +125,12 @@ func (s *Service) GetProductDetails(userID int, bankCode, agreementID string) (*
 	req.Header.Set("x-product-agreement-consent-id", consent.ConsentID)
 	req.Header.Set("x-requesting-bank", "team081")
 
-	resp, err := s.HTTPClient.Do(req)
+	// Генерируем ключ кэша
+	cacheKey := fmt.Sprintf("product:%s:%s:%s:%d", bankCode, user.ClientID, agreementID, userID)
+	ctx := context.Background()
+
+	// Используем обертку с кэшированием, retry, rate limiting и circuit breaker
+	resp, err := s.HTTPWrapper.Do(ctx, bankCode, req, cacheKey, true)
 	if err != nil {
 		return nil, err
 	}
@@ -166,17 +184,24 @@ func (s *Service) DeleteProduct(userID int, bankCode, agreementID string, payloa
 	req.Header.Set("x-product-agreement-consent-id", consent.ConsentID)
 	req.Header.Set("x-requesting-bank", "team081")
 
-	resp, err := s.HTTPClient.Do(req)
+	ctx := context.Background()
+	// Для DELETE запросов не используем кэш, но применяем retry, rate limiting и circuit breaker
+	resp, err := s.HTTPWrapper.Do(ctx, bankCode, req, "", false)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
 		var errResp map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&errResp)
+		json.Unmarshal(bodyBytes, &errResp)
 		return fmt.Errorf("bank returned %d: %v", resp.StatusCode, errResp)
 	}
+
+	// Удаляем из кэша при успешном удалении
+	cacheKey := fmt.Sprintf("product:%s:%s:%s:%d", bankCode, user.ClientID, agreementID, userID)
+	_ = s.CacheService.Delete(cacheKey)
 
 	return nil
 }

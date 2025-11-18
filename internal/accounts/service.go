@@ -2,29 +2,36 @@ package accounts
 
 import (
 	"MoneyPilot/internal/bankapi"
+	"MoneyPilot/internal/cache"
 	"MoneyPilot/internal/storage"
+	"context"
+	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
-	"time"
 )
 
 type Service struct {
-	repo     *storage.Repository
-	tokenSvc *bankapi.TokenService
-	banks    map[string]*bankapi.BankClient
-	http     *http.Client
+	repo         *storage.Repository
+	tokenSvc     *bankapi.TokenService
+	banks        map[string]*bankapi.BankClient
+	httpWrapper  *bankapi.ClientWrapper
+	cacheService *cache.CacheService
 }
 
-func NewService(repo *storage.Repository, ts *bankapi.TokenService, banks map[string]*bankapi.BankClient) *Service {
+func NewService(repo *storage.Repository, ts *bankapi.TokenService, banks map[string]*bankapi.BankClient, cacheService *cache.CacheService) *Service {
+	config := bankapi.DefaultConfig()
+	httpWrapper := bankapi.NewClientWrapper(cacheService, config)
+
 	return &Service{
-		repo:     repo,
-		tokenSvc: ts,
-		banks:    banks,
-		http:     &http.Client{Timeout: 15 * time.Second},
+		repo:         repo,
+		tokenSvc:     ts,
+		banks:        banks,
+		httpWrapper:  httpWrapper,
+		cacheService: cacheService,
 	}
 }
 
@@ -49,6 +56,7 @@ func (s *Service) FetchAllUserAccounts(userID int) ([]BankAccount, error) {
 
 	var allAccounts []BankAccount
 	requestingBank := os.Getenv("LOGIN_HAC")
+	ctx := context.Background()
 
 	for _, consent := range consents {
 		bankClient := s.banks[*consent.BankCode]
@@ -67,16 +75,21 @@ func (s *Service) FetchAllUserAccounts(userID int) ([]BankAccount, error) {
 		req.Header.Set("X-Requesting-Bank", requestingBank)
 		req.Header.Set("X-Consent-Id", consent.ConsentID)
 
-		resp, err := s.http.Do(req)
+		// Генерируем ключ кэша
+		cacheKey := fmt.Sprintf("accounts:%s:%s:%d", *consent.BankCode, user.ClientID, userID)
+
+		// Используем обертку с кэшированием, retry, rate limiting и circuit breaker
+		resp, err := s.httpWrapper.Do(ctx, *consent.BankCode, req, cacheKey, true)
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		defer resp.Body.Close()
 
 		if resp.StatusCode != 200 {
 			continue
 		}
+
+		body, _ := io.ReadAll(resp.Body)
 
 		// Структура OpenBanking
 		var parsed struct {
@@ -134,11 +147,6 @@ func (s *Service) FetchAccountDetails(userID int, bankCode, accountID string) (m
 }
 
 func (s *Service) proxyBankRequest(userID int, bankCode, path string) (map[string]interface{}, error) {
-	// user, err := s.repo.GetUserByID(userID)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("user not found: %w", err)
-	// }
-
 	consents, err := s.repo.GetValidAccountConsentsByUserIDAndBank(userID, bankCode)
 	if err != nil || len(consents) == 0 {
 		return nil, fmt.Errorf("no valid consent found for bank %s", bankCode)
@@ -161,13 +169,20 @@ func (s *Service) proxyBankRequest(userID int, bankCode, path string) (map[strin
 	req.Header.Set("X-Requesting-Bank", os.Getenv("LOGIN_HAC"))
 	req.Header.Set("X-Consent-Id", consent.ConsentID)
 
-	resp, err := s.http.Do(req)
+	// Генерируем ключ кэша на основе пути и параметров
+	cacheKey := fmt.Sprintf("api:%s:%s:%x", bankCode, path, md5.Sum([]byte(path+consent.ConsentID)))
+
+	ctx := context.Background()
+	// Используем обертку с кэшированием, retry, rate limiting и circuit breaker
+	resp, err := s.httpWrapper.Do(ctx, bankCode, req, cacheKey, true)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
 	return result, nil
 }

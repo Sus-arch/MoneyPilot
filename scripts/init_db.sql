@@ -3,7 +3,7 @@
 -- ========================
 
 -- Очистка при пересоздании
-DROP TABLE IF EXISTS product_agreements, products, payments, payment_consents, account_consents, transactions, accounts, users, banks, product_agreement_consents CASCADE;
+DROP TABLE IF EXISTS api_cache, product_agreements, products, payments, payment_consents, account_consents, transactions, accounts, users, banks, product_agreement_consents CASCADE;
 
 -- 🏦 Таблица банков
 CREATE TABLE banks (
@@ -144,6 +144,18 @@ CREATE TABLE product_agreement_consents (
 
 
 
+-- 💾 Кэш для API ответов
+CREATE TABLE api_cache (
+    id SERIAL PRIMARY KEY,
+    cache_key VARCHAR(255) UNIQUE NOT NULL,
+    data JSONB NOT NULL,
+    updated_at TIMESTAMP DEFAULT NOW(),
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
 CREATE INDEX idx_users_bank_id ON users(bank_id);
 CREATE INDEX idx_accounts_user_id ON accounts(user_id);
 CREATE INDEX idx_transactions_account_id ON transactions(account_id);
+CREATE INDEX idx_api_cache_key ON api_cache(cache_key);
+CREATE INDEX idx_api_cache_expires_at ON api_cache(expires_at);
