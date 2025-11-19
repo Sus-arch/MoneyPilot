@@ -122,7 +122,8 @@ export default function ProductsPage() {
       if (response.status === "approved") {
         // Очищаем кэш продуктов при успешном согласии
         clearCache("/products");
-        await fetchProducts();
+        // Принудительно обновляем продукты, чтобы получить новые данные для всех банков
+        await fetchProducts(true);
       }
     } catch (err: any) {
       console.error(err);
@@ -136,12 +137,13 @@ export default function ProductsPage() {
     }
   };
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (force = false) => {
     // Предотвращаем дублирующие запросы
     if (fetchingProductsRef.current) return;
     
     const banksKey = connectedBanks.map(b => b.id).sort().join(",");
-    if (lastBanksRef.current === banksKey && Object.keys(products).length > 0) {
+    // Если не принудительное обновление и ключ банков не изменился, пропускаем
+    if (!force && lastBanksRef.current === banksKey && Object.keys(products).length > 0) {
       return;
     }
     
@@ -209,12 +211,12 @@ export default function ProductsPage() {
   };
 
   useEffect(() => {
-    // Обновляем продукты только при изменении списка подключенных банков
+    // Обновляем продукты при изменении списка подключенных банков
     const banksKey = connectedBanks.map(b => b.id).sort().join(",");
     if (lastBanksRef.current !== banksKey) {
-      fetchProducts();
+      fetchProducts(false);
     }
-  }, [connectedBanks.length]);
+  }, [connectedBanks.length, bankTokens]);
 
   return (
     <div className="max-w-5xl mx-auto mt-10 p-6">
