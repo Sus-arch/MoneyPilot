@@ -31,13 +31,14 @@ CREATE TABLE accounts (
     id SERIAL PRIMARY KEY,
     user_id INT REFERENCES users(id) ON DELETE CASCADE,
     bank_id INT REFERENCES banks(id) ON DELETE CASCADE,
-    account_number VARCHAR(64) UNIQUE NOT NULL,
+    account_number VARCHAR(64) NOT NULL,
     account_type VARCHAR(32) DEFAULT 'checking',
     nickname VARCHAR(64),
     currency VARCHAR(8) DEFAULT 'RUB',
     balance NUMERIC(18,2) DEFAULT 0,
     status VARCHAR(32) DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(user_id, bank_id, account_number)
 );
 
 -- 📈 Транзакции

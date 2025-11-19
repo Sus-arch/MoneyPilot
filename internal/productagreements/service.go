@@ -90,6 +90,17 @@ func (s *Service) GetProducts(userID int, bankCode string) ([]Product, error) {
 		return nil, err
 	}
 
+	// Сохраняем product agreements в БД
+	for _, p := range result.Data {
+		var amount *float64
+		if p.Amount > 0 {
+			amount = &p.Amount
+		}
+		if err := s.Repo.UpsertProductAgreement(user.ID, p.AgreementID, p.ProductID, amount, nil, p.Status); err != nil {
+			log.Printf("Failed to save product agreement %s to DB: %v\n", p.AgreementID, err)
+		}
+	}
+
 	return result.Data, nil
 }
 
@@ -147,6 +158,16 @@ func (s *Service) GetProductDetails(userID int, bankCode, agreementID string) (*
 		return nil, err
 	}
 
+	// Сохраняем product agreement в БД
+	var amount *float64
+	if result.Data.Amount > 0 {
+		amount = &result.Data.Amount
+	}
+	var termMonths *int
+	if err := s.Repo.UpsertProductAgreement(user.ID, result.Data.AgreementID, result.Data.ProductID, amount, termMonths, result.Data.Status); err != nil {
+		log.Printf("Failed to save product agreement %s to DB: %v\n", result.Data.AgreementID, err)
+	}
+
 	return &result.Data, nil
 }
 
@@ -202,6 +223,9 @@ func (s *Service) DeleteProduct(userID int, bankCode, agreementID string, payloa
 	// Удаляем из кэша при успешном удалении
 	cacheKey := fmt.Sprintf("product:%s:%s:%s:%d", bankCode, user.ClientID, agreementID, userID)
 	_ = s.CacheService.Delete(cacheKey)
+
+	// Также удаляем из БД, если есть метод для этого
+	// Пока оставляем в БД для истории
 
 	return nil
 }

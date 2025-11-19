@@ -85,22 +85,10 @@ func (h *ConsentHandler) CreateConsent(c *gin.Context) {
 		return
 	}
 	// 5) проверяем — нет ли уже действующего consent для этого user+bank
-	// предпочитаем метод по userID, если он есть; иначе используем email
-	var existing []storage.AccountConsent
-	if methodExists := true; methodExists {
-		// если у репозитория есть GetValidAccountConsentsByUserIDAndBank — вызываем его
-		if cons, err2 := h.Repo.GetValidAccountConsentsByEmailAndBank(user.ClientID, bankCode); err2 == nil && len(cons) > 0 {
-			existing = cons
-		}
-	}
-	// fallback: по email (если email непустой)
-	if len(existing) == 0 && user.Email != nil {
-		if cons, err2 := h.Repo.GetValidAccountConsentsByEmailAndBank(*user.Email, bankCode); err2 == nil && len(cons) > 0 {
-			existing = cons
-		}
-	}
-
-	if len(existing) > 0 {
+	// Сначала проверяем по userID (основной метод)
+	existing, err := h.Repo.GetValidAccountConsentsByUserIDAndBank(userID, bankCode)
+	if err == nil && len(existing) > 0 {
+		// Активное согласие уже существует - возвращаем его
 		c.JSON(http.StatusOK, gin.H{
 			"message":    "active consent exists",
 			"consent_id": existing[0].ConsentID,
@@ -108,6 +96,18 @@ func (h *ConsentHandler) CreateConsent(c *gin.Context) {
 			"expires_at": existing[0].ExpiresAt,
 		})
 		return
+	}
+	// Fallback: проверяем по email (если email непустой)
+	if len(existing) == 0 && user.Email != nil {
+		if cons, err2 := h.Repo.GetValidAccountConsentsByEmailAndBank(*user.Email, bankCode); err2 == nil && len(cons) > 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"message":    "active consent exists",
+				"consent_id": cons[0].ConsentID,
+				"status":     cons[0].Status,
+				"expires_at": cons[0].ExpiresAt,
+			})
+			return
+		}
 	}
 
 	// 6) Проверка TokenSvc

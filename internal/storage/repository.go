@@ -77,8 +77,21 @@ func (r *Repository) GetUserByClientIDAndBank(clientID, bankCode string) (*User,
 	return &u, nil
 }
 
+// GetUserByClientIDAndBankID возвращает пользователя по client_id и bank_id
+// Используется как в SaveProductAgreementConsent для правильного получения userID для конкретного банка
+func (r *Repository) GetUserByClientIDAndBankID(clientID string, bankID int) (*User, error) {
+	var u User
+	err := r.DB.QueryRow(`SELECT id, client_id, bank_id, email, password_hash, segment, created_at FROM users WHERE client_id=$1 AND bank_id=$2`, clientID, bankID).
+		Scan(&u.ID, &u.ClientID, &u.BankID, &u.Email, &u.PasswordHash, &u.Segment, &u.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
 // SaveAccountConsentByEmailAndBank inserts an account_consents row by resolving user and bank
 // from human-friendly values (email and bank code). This avoids requiring caller to know DB ids.
+// Использует client_id и bank_id для получения правильного userID, как в SaveProductAgreementConsent
 func (r *Repository) SaveAccountConsentByClientIdAndBank(client_id, bankCode, consentID, requestingBank string, permissions []string, status string, expires time.Time) error {
 	tx, err := r.DB.Begin()
 	if err != nil {
@@ -86,18 +99,20 @@ func (r *Repository) SaveAccountConsentByClientIdAndBank(client_id, bankCode, co
 	}
 	defer tx.Rollback()
 
-	var userID int
-	if err := tx.QueryRow(`SELECT id FROM users WHERE client_id=$1`, client_id).Scan(&userID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return errors.New("user not found")
-		}
-		return err
-	}
-
 	var bankID int
 	if err := tx.QueryRow(`SELECT id FROM banks WHERE code=$1`, bankCode).Scan(&bankID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return errors.New("bank not found")
+		}
+		return err
+	}
+
+	// Получаем правильного пользователя для данного банка по client_id и bank_id
+	// Как в SaveProductAgreementConsent: SELECT id FROM users WHERE client_id=$1 AND bank_id=$2
+	var userID int
+	if err := tx.QueryRow(`SELECT id FROM users WHERE client_id=$1 AND bank_id=$2`, client_id, bankID).Scan(&userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("user not found for this bank")
 		}
 		return err
 	}
@@ -404,29 +419,47 @@ func (r *Repository) DeleteProductConsent(consentID string) error {
 	return err
 }
 
+// UpsertProductAgreement сохраняет или обновляет договор по продукту в БД
+func (r *Repository) UpsertProductAgreement(userID int, agreementID, productID string, amount *float64, termMonths *int, status string) error {
+	_, err := r.DB.Exec(`
+		INSERT INTO product_agreements (agreement_id, user_id, product_id, amount, term_months, status)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (agreement_id)
+		DO UPDATE SET
+			product_id = EXCLUDED.product_id,
+			amount = EXCLUDED.amount,
+			term_months = EXCLUDED.term_months,
+			status = EXCLUDED.status,
+			user_id = EXCLUDED.user_id
+	`, agreementID, userID, productID, amount, termMonths, status)
+	return err
+}
+
 // UpsertAccount сохраняет или обновляет счет в БД
-// accountNumber используется как уникальный идентификатор (account_id из API)
+// Использует составной уникальный ключ (user_id, bank_id, account_number)
 func (r *Repository) UpsertAccount(userID, bankID int, accountNumber, accountType, nickname, currency, status string) error {
 	_, err := r.DB.Exec(`
 		INSERT INTO accounts (user_id, bank_id, account_number, account_type, nickname, currency, status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (account_number) 
+		ON CONFLICT (user_id, bank_id, account_number) 
 		DO UPDATE SET 
 			account_type = EXCLUDED.account_type,
 			nickname = EXCLUDED.nickname,
 			currency = EXCLUDED.currency,
-			status = EXCLUDED.status
+			status = EXCLUDED.status,
+			user_id = EXCLUDED.user_id,
+			bank_id = EXCLUDED.bank_id
 	`, userID, bankID, accountNumber, accountType, nickname, currency, status)
 	return err
 }
 
 // UpdateAccountBalance обновляет баланс счета
-func (r *Repository) UpdateAccountBalance(accountNumber string, balance float64) error {
+func (r *Repository) UpdateAccountBalance(userID, bankID int, accountNumber string, balance float64) error {
 	_, err := r.DB.Exec(`
 		UPDATE accounts 
 		SET balance = $1 
-		WHERE account_number = $2
-	`, balance, accountNumber)
+		WHERE user_id = $2 AND bank_id = $3 AND account_number = $4
+	`, balance, userID, bankID, accountNumber)
 	return err
 }
 
