@@ -373,7 +373,7 @@ func (r *Repository) GetUserByUserIDAndBank(userID int, bankCode string) (*User,
 
 func (r *Repository) GetActiveProductConsentByUserAndBank(userID int, bankCode string) (*ProductAgreementConsent, error) {
 	user, err := r.GetUserByUserIDAndBank(userID, bankCode)
-	// log.Println(user)
+	log.Println(user)
 	rows, err := r.DB.Query(`
 		SELECT ac.id, ac.request_id , ac.consent_id, ac.user_id, ac.bank_id, b.code, ac.requesting_bank,
 			   ac.read_product_agreements, ac.open_product_agreements, ac.close_product_agreements,

@@ -57,7 +57,7 @@ func (p *ProductConsentRepoAdapter) GetPendingConsents() ([]ConsentRecord, error
 	for rows.Next() {
 		var c ConsentRecord
 		var bankCode, reqBank string
-		if err := rows.Scan(&c.UserID, &c.ConsentID, &bankCode, &reqBank, &c.Status); err != nil {
+		if err := rows.Scan(&c.ConsentID, &bankCode, &c.UserID, &c.Status, &c.ConsentType, &reqBank); err != nil {
 			return nil, err
 		}
 		c.BankCode = bankCode
