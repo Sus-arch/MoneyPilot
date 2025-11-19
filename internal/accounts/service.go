@@ -47,11 +47,20 @@ type BankAccount struct {
 }
 
 // FetchAllUserAccounts получает счета со всех банков, на которые есть согласие
-func (s *Service) FetchAllUserAccounts(userID int) ([]BankAccount, error) {
+// Если указан список bankCodes, возвращаются счета только для этих банков
+func (s *Service) FetchAllUserAccounts(userID int, bankCodes []string) ([]BankAccount, error) {
 	consents, err := s.repo.GetValidAccountConsentsByUserID(userID)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to load consents: %w", err)
+	}
+
+	// Создаем map для быстрой проверки, какие банки нужно включить
+	allowedBanks := make(map[string]bool)
+	if len(bankCodes) > 0 {
+		for _, code := range bankCodes {
+			allowedBanks[strings.ToLower(strings.TrimSpace(code))] = true
+		}
 	}
 
 	// Группируем согласия по банку, используем только самое свежее согласие для каждого банка
@@ -61,6 +70,10 @@ func (s *Service) FetchAllUserAccounts(userID int) ([]BankAccount, error) {
 			continue
 		}
 		bankCode := *consent.BankCode
+		// Если указан список банков, фильтруем по нему
+		if len(allowedBanks) > 0 && !allowedBanks[strings.ToLower(bankCode)] {
+			continue
+		}
 		// Если согласия для этого банка еще нет, или текущее согласие новее - используем его
 		if existing, exists := consentsByBank[bankCode]; !exists || consent.CreatedAt.After(existing.CreatedAt) {
 			consentsByBank[bankCode] = consent
