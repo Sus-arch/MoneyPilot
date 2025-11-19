@@ -3,6 +3,7 @@ package accountconsents
 import (
 	"MoneyPilot/internal/bankapi"
 	"MoneyPilot/internal/storage"
+	"context"
 	"encoding/json"
 	"io"
 	"log"
@@ -18,15 +19,19 @@ type ConsentHandler struct {
 	Repo        *storage.Repository
 	TokenSvc    *bankapi.TokenService
 	BankClients map[string]*bankapi.BankClient
-	HTTPClient  *http.Client
+	HTTPWrapper *bankapi.ClientWrapper
 }
 
 func NewConsentHandler(repo *storage.Repository, ts *bankapi.TokenService, clients map[string]*bankapi.BankClient) *ConsentHandler {
+	// Для согласий кэширование не используется, но нужны retry, rate limiting и circuit breaker
+	config := bankapi.DefaultConfig()
+	httpWrapper := bankapi.NewClientWrapper(nil, config) // nil cacheService, так как кэш не нужен
+
 	return &ConsentHandler{
 		Repo:        repo,
 		TokenSvc:    ts,
 		BankClients: clients,
-		HTTPClient:  &http.Client{Timeout: 15 * time.Second},
+		HTTPWrapper: httpWrapper,
 	}
 }
 
@@ -142,7 +147,8 @@ func (h *ConsentHandler) CreateConsent(c *gin.Context) {
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+bankToken)
 
-	resp, err := h.HTTPClient.Do(httpReq)
+	// Используем обертку с retry, rate limiting и circuit breaker (без кэширования)
+	resp, err := h.HTTPWrapper.Do(c.Request.Context(), bankCode, httpReq, "", false)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "bank request failed", "details": err.Error()})
 		return
@@ -286,14 +292,10 @@ func (h *ConsentHandler) PollPendingConsents() {
 		req.Header.Set("Authorization", "Bearer "+tokenObj.Token)
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("X-Fapi-Interaction-Id", "team081")
-		// include interaction id header if we have requesting bank info
-		// if c.RequestingBank != nil && *c.RequestingBank != "" {
-		// 	req.Header.Set("X-Fapi-Interaction-Id", *c.RequestingBank)
-		// } else {
-		// 	req.Header.Set("X-Fapi-Interaction-Id", "team081")
-		// }
 
-		resp, err := h.HTTPClient.Do(req)
+		// Используем обертку с retry, rate limiting и circuit breaker (без кэширования)
+		ctx := context.Background()
+		resp, err := h.HTTPWrapper.Do(ctx, *c.BankCode, req, "", false)
 		if err != nil {
 			log.Printf("poll: bank request failed for %s: %v", c.ConsentID, err)
 			continue
