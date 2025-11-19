@@ -79,8 +79,13 @@ export default function AccountsPage() {
     setError("");
 
     try {
+      // Получаем список всех подключенных банков
+      const connectedBanks = Object.keys(bankTokens).filter(bank => bankTokens[bank]);
+      const bankCodesHeader = connectedBanks.join(",");
+
       const res = await get("/accounts", {
         Authorization: `Bearer ${bankTokens[currentBank]}`,
+        "X-Bank-Code": bankCodesHeader,
       });
 
       const accountsData: Account[] = (res.accounts || []).map((a: any) => ({
