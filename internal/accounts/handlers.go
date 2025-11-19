@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -18,6 +19,7 @@ func NewHandler(service *Service) *Handler {
 
 // ListAccounts — эндпоинт GET /api/accounts
 // Требует JWT (middleware добавляет user_id в контекст)
+// Опционально принимает заголовок X-Bank-Code со списком банков через запятую (например: "vbank,abank,sbank")
 func (h *Handler) ListAccounts(c *gin.Context) {
 	userID := c.GetInt("user_id")
 	if userID == 0 {
@@ -25,7 +27,21 @@ func (h *Handler) ListAccounts(c *gin.Context) {
 		return
 	}
 
-	accounts, err := h.service.FetchAllUserAccounts(userID)
+	// Получаем список банков из заголовка X-Bank-Code
+	bankCodesHeader := c.GetHeader("X-Bank-Code")
+	var bankCodes []string
+	if bankCodesHeader != "" {
+		// Разделяем по запятой и очищаем от пробелов
+		codes := strings.Split(bankCodesHeader, ",")
+		for _, code := range codes {
+			trimmed := strings.TrimSpace(code)
+			if trimmed != "" {
+				bankCodes = append(bankCodes, trimmed)
+			}
+		}
+	}
+
+	accounts, err := h.service.FetchAllUserAccounts(userID, bankCodes)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch accounts", "details": err.Error()})
 		return
