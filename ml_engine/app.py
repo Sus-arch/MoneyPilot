@@ -4,10 +4,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import httpx
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+from prophet import Prophet
+import pandas as pd
 
 from core.advisor import generate_advice
 from core.can_afford.can_afford_rule import can_afford_rule
-from models.spending_predictor import SpendingPredictor
+from core.can_afford.transactions_to_df import transactions_to_df
 from services.go_api_client import GoApiClient
 
 app = FastAPI(title="FinBalance ML Engine")
@@ -114,6 +116,9 @@ async def can_afford(
             transactions.extend(t)
 
         client_data = {"accounts": accounts, "balances": balances, "transactions": transactions}
+        print(client_data)
+        print(transactions_to_df(client_data["transactions"]))
+
 
         recommendation = can_afford_rule(client_data, amount)
         return {"status": "success", "data": recommendation}
@@ -122,48 +127,43 @@ async def can_afford(
         return {"status": "error", "message": str(e)}
 
 @app.get("/predict_spending")
-def predict_spending(authorization: str = Header(...)):
+async def predict_spending(authorization: str = Header(...)):
     """Прогнозирует расходы на следующий месяц."""
     try:
         client = GoApiClient(token=authorization)
-        predictor = SpendingPredictor()
-
-        # Получаем список счетов
-        accounts = client.get_accounts()
-        all_tx = []
-
-        # Дата диапазон: последние 6 месяцев
-        date_to = datetime(2025, 10, 20)
-        print(date_to)
-        date_from = date_to - relativedelta(months=6)
-        print("Flag")
+        print("accounts1")
+        accounts = await client.get_accounts()
+        print("accounts2")
+        transactions = []
         for acc in accounts:
-            print(f"📘 Запрашиваю транзакции для account_id={acc['account_id']}, bank={acc['bank']}", flush=True)
-            tx = client.get_transactions(
+            t = await client.get_transactions(
                 account_id=acc["account_id"],
                 bank_code=acc["bank"],
-                date_from=date_from.strftime("%Y-%m-%d"),
-                date_to=date_to.strftime("%Y-%m-%d"),
-                limit=200
             )
-            print(f"🔹 Получено {len(tx)} транзакций", flush=True)
+            print("accounts3")
+            transactions.extend(t)
 
-            all_tx.extend(tx)
+        print("accounts4")
+        df = transactions_to_df(transactions)
+        print("accounts5")
+        print(df)
 
-        if not all_tx:
-            return {"status": "error", "message": "Нет данных для прогнозирования"}
+        # Обучаем Prophet
+        model = Prophet(daily_seasonality=True, weekly_seasonality=True, yearly_seasonality=True)
+        model.fit(df)
 
-        # Подготовка и прогноз
-        df = predictor.prepare_monthly_data(all_tx)
-        predictor.train(df)
-        next_month_forecast = predictor.predict_next_month(df)
+        # Прогноз на следующий месяц
+        last_date = df['ds'].max()
+        future_dates = pd.date_range(last_date + timedelta(days=1), last_date + timedelta(days=30))
+        future_df = pd.DataFrame({'ds': future_dates})
 
-        if next_month_forecast is None:
-            return {"status": "error", "message": "Недостаточно данных"}
+        forecast = model.predict(future_df)
+
+        total_predicted = forecast['yhat'].sum()
 
         return {
             "status": "success",
-            "forecast": round(next_month_forecast, 2),
+            "forecast": round(float(total_predicted), 2),
             "currency": "RUB",
             "next_month": (datetime.utcnow() + relativedelta(months=1)).strftime("%B %Y")
         }

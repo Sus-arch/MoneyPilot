@@ -19,3 +19,4 @@ numpy==2.3.4
 lightgbm==4.6.0
 asyncio==4.0.0
 httpx==0.28.1
+prophet==1.2.1
