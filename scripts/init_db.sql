@@ -159,3 +159,72 @@ CREATE INDEX idx_accounts_user_id ON accounts(user_id);
 CREATE INDEX idx_transactions_account_id ON transactions(account_id);
 CREATE INDEX idx_api_cache_key ON api_cache(cache_key);
 CREATE INDEX idx_api_cache_expires_at ON api_cache(expires_at);
+
+
+-- Cоздание 10 пользователей
+
+-- Добавляем VBank и 10 пользователей team081-1...team081-10
+WITH upsert_bank AS (
+  INSERT INTO banks (code, name, api_base_url)
+  VALUES ('vbank', 'Virtual Bank', 'https://vbank.open.bankingapi.ru')
+  ON CONFLICT (code) DO UPDATE
+    SET name = EXCLUDED.name,
+        api_base_url = EXCLUDED.api_base_url
+  RETURNING id
+),
+bank AS (
+  SELECT id FROM upsert_bank
+  UNION ALL
+  SELECT id FROM banks WHERE code='vbank' LIMIT 1
+)
+INSERT INTO users (client_id, bank_id, password_hash)
+SELECT 'team081-' || n, bank.id, 'Nx1FIkTkSG2Sxk9R'
+FROM bank, generate_series(1, 10) AS gs(n)
+WHERE NOT EXISTS (
+  SELECT 1 FROM users u
+  WHERE u.client_id = 'team081-' || n AND u.bank_id = bank.id
+);
+
+-- Добавляем SBank и 10 пользователей team081-1...team081-10
+WITH upsert_bank AS (
+  INSERT INTO banks (code, name, api_base_url)
+  VALUES ('sbank', 'Smart Bank', 'https://sbank.open.bankingapi.ru')
+  ON CONFLICT (code) DO UPDATE
+    SET name = EXCLUDED.name,
+        api_base_url = EXCLUDED.api_base_url
+  RETURNING id
+),
+bank AS (
+  SELECT id FROM upsert_bank
+  UNION ALL
+  SELECT id FROM banks WHERE code='sbank' LIMIT 1
+)
+INSERT INTO users (client_id, bank_id, password_hash)
+SELECT 'team081-' || n, bank.id, 'Nx1FIkTkSG2Sxk9R'
+FROM bank, generate_series(1, 10) AS gs(n)
+WHERE NOT EXISTS (
+  SELECT 1 FROM users u
+  WHERE u.client_id = 'team081-' || n AND u.bank_id = bank.id
+);
+
+-- Добавляем ABank и 10 пользователей team081-1...team081-10
+WITH upsert_bank AS (
+  INSERT INTO banks (code, name, api_base_url)
+  VALUES ('abank', 'Awesome Bank', 'https://abank.open.bankingapi.ru')
+  ON CONFLICT (code) DO UPDATE
+    SET name = EXCLUDED.name,
+        api_base_url = EXCLUDED.api_base_url
+  RETURNING id
+),
+bank AS (
+  SELECT id FROM upsert_bank
+  UNION ALL
+  SELECT id FROM banks WHERE code='abank' LIMIT 1
+)
+INSERT INTO users (client_id, bank_id, password_hash)
+SELECT 'team081-' || n, bank.id, 'Nx1FIkTkSG2Sxk9R'
+FROM bank, generate_series(1, 10) AS gs(n)
+WHERE NOT EXISTS (
+  SELECT 1 FROM users u
+  WHERE u.client_id = 'team081-' || n AND u.bank_id = bank.id
+);
