@@ -14,6 +14,7 @@ import (
 	bankapi "MoneyPilot/internal/bankapi"
 	"MoneyPilot/internal/cache"
 	"MoneyPilot/internal/paymentconsents"
+	"MoneyPilot/internal/payments"
 	"MoneyPilot/internal/poller"
 	"MoneyPilot/internal/productagreements"
 	"MoneyPilot/internal/productconsents"
@@ -61,6 +62,9 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	paymentConsentsService := paymentconsents.NewService(repo, ts, bankapi.Banks)
 	paymentConsentsHandler := paymentconsents.NewHandler(paymentConsentsService)
 
+	paymentsService := payments.NewService(repo, ts, bankapi.Banks)
+	paymentsHandler := payments.NewHandler(paymentsService)
+
 	// --- WebSocket Hub ---
 	wsHub := websockets.NewHub()
 	r.GET("/ws", wsHub.HandleConnection)
@@ -96,6 +100,10 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 
 	// 👇 Добавляем маршруты для payment consents
 	secured.POST("/payment-consents/request", paymentConsentsHandler.CreatePaymentConsent)
+
+	// 👇 Добавляем маршруты для payments
+	secured.POST("/payments", paymentsHandler.CreatePayment)
+	secured.GET("/payments/:payment_id", paymentsHandler.GetPaymentStatus)
 
 	// --- Account-related endpoints ---
 	secured.GET("/accounts", accountHandler.ListAccounts)

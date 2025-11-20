@@ -59,47 +59,52 @@ type AccountConsent struct {
 }
 
 type PaymentConsent struct {
-	ID                       int        `db:"id" json:"id"`
-	RequestID                string     `db:"request_id" json:"request_id"`
-	ConsentID                *string    `db:"consent_id" json:"consent_id"`
-	UserID                   int        `db:"user_id" json:"user_id"`
-	BankID                   int        `db:"bank_id" json:"bank_id"`
-	RequestingBank           *string    `db:"requesting_bank" json:"requesting_bank"`
-	ConsentType              string     `db:"consent_type" json:"consent_type"`
-	Amount                   *float64   `db:"amount" json:"amount"`
-	Currency                 *string    `db:"currency" json:"currency"`
-	DebtorAccount            string     `db:"debtor_account" json:"debtor_account"`
-	CreditorAccount          *string    `db:"creditor_account" json:"creditor_account"`
-	CreditorName             *string    `db:"creditor_name" json:"creditor_name"`
-	Reference                *string    `db:"reference" json:"reference"`
-	MaxUses                  *int       `db:"max_uses" json:"max_uses"`
-	MaxAmountPerPayment      *float64   `db:"max_amount_per_payment" json:"max_amount_per_payment"`
-	MaxTotalAmount           *float64   `db:"max_total_amount" json:"max_total_amount"`
-	AllowedCreditorAccounts  []string   `db:"allowed_creditor_accounts" json:"allowed_creditor_accounts"`
-	VRPMaxIndividualAmount   *float64   `db:"vrp_max_individual_amount" json:"vrp_max_individual_amount"`
-	VRPDailyLimit            *float64   `db:"vrp_daily_limit" json:"vrp_daily_limit"`
-	VRPMonthlyLimit          *float64   `db:"vrp_monthly_limit" json:"vrp_monthly_limit"`
-	ValidFrom                *time.Time `db:"valid_from" json:"valid_from"`
-	ValidUntil               *time.Time `db:"valid_until" json:"valid_until"`
-	Reason                   *string    `db:"reason" json:"reason"`
-	Status                   string     `db:"status" json:"status"`
-	ExpiresAt                *time.Time `db:"expires_at" json:"expires_at"`
-	CreatedAt                time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt                time.Time  `db:"updated_at" json:"updated_at"`
-	BankCode                 *string    `db:"bank_code" json:"bank_code"` // для JOIN
+	ID                      int        `db:"id" json:"id"`
+	RequestID               string     `db:"request_id" json:"request_id"`
+	ConsentID               *string    `db:"consent_id" json:"consent_id"`
+	UserID                  int        `db:"user_id" json:"user_id"`
+	BankID                  int        `db:"bank_id" json:"bank_id"`
+	RequestingBank          *string    `db:"requesting_bank" json:"requesting_bank"`
+	ConsentType             string     `db:"consent_type" json:"consent_type"`
+	Amount                  *float64   `db:"amount" json:"amount"`
+	Currency                *string    `db:"currency" json:"currency"`
+	DebtorAccount           string     `db:"debtor_account" json:"debtor_account"`
+	CreditorAccount         *string    `db:"creditor_account" json:"creditor_account"`
+	CreditorName            *string    `db:"creditor_name" json:"creditor_name"`
+	Reference               *string    `db:"reference" json:"reference"`
+	MaxUses                 *int       `db:"max_uses" json:"max_uses"`
+	MaxAmountPerPayment     *float64   `db:"max_amount_per_payment" json:"max_amount_per_payment"`
+	MaxTotalAmount          *float64   `db:"max_total_amount" json:"max_total_amount"`
+	AllowedCreditorAccounts []string   `db:"allowed_creditor_accounts" json:"allowed_creditor_accounts"`
+	VRPMaxIndividualAmount  *float64   `db:"vrp_max_individual_amount" json:"vrp_max_individual_amount"`
+	VRPDailyLimit           *float64   `db:"vrp_daily_limit" json:"vrp_daily_limit"`
+	VRPMonthlyLimit         *float64   `db:"vrp_monthly_limit" json:"vrp_monthly_limit"`
+	ValidFrom               *time.Time `db:"valid_from" json:"valid_from"`
+	ValidUntil              *time.Time `db:"valid_until" json:"valid_until"`
+	Reason                  *string    `db:"reason" json:"reason"`
+	Status                  string     `db:"status" json:"status"`
+	ExpiresAt               *time.Time `db:"expires_at" json:"expires_at"`
+	CreatedAt               time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt               time.Time  `db:"updated_at" json:"updated_at"`
+	BankCode                *string    `db:"bank_code" json:"bank_code"` // для JOIN
 }
 
 type Payment struct {
-	ID              int        `db:"id" json:"id"`
-	PaymentID       string     `db:"payment_id" json:"payment_id"`
-	UserID          *int       `db:"user_id" json:"user_id"`
-	DebtorAccount   *string    `db:"debtor_account" json:"debtor_account"`
-	CreditorAccount *string    `db:"creditor_account" json:"creditor_account"`
-	Amount          *float64   `db:"amount" json:"amount"`
-	Currency        *string    `db:"currency" json:"currency"`
-	Status          string     `db:"status" json:"status"`
-	CreatedAt       time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt       *time.Time `db:"updated_at" json:"updated_at"`
+	ID               int       `db:"id" json:"id"`
+	PaymentID        string    `db:"payment_id" json:"payment_id"`
+	UserID           int       `db:"user_id" json:"user_id"`
+	BankID           int       `db:"bank_id" json:"bank_id"`
+	DebtorAccount    string    `db:"debtor_account" json:"debtor_account"`
+	CreditorAccount  string    `db:"creditor_account" json:"creditor_account"`
+	CreditorBankCode *string   `db:"creditor_bank_code" json:"creditor_bank_code"` // для межбанковских переводов
+	Amount           float64   `db:"amount" json:"amount"`
+	Currency         string    `db:"currency" json:"currency"`
+	Comment          *string   `db:"comment" json:"comment"`
+	Description      *string   `db:"description" json:"description"`
+	Status           string    `db:"status" json:"status"`
+	PaymentConsentID *string   `db:"payment_consent_id" json:"payment_consent_id"` // связь с согласием на платеж
+	CreatedAt        time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt        time.Time `db:"updated_at" json:"updated_at"`
 }
 
 type Product struct {
