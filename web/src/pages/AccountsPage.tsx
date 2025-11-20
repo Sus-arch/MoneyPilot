@@ -18,6 +18,7 @@ interface Account {
   currency: string;
   bank: string;
   account_subtype: string;
+  identification?: string;
 }
 
 interface Balance {
@@ -95,6 +96,7 @@ export default function AccountsPage() {
         currency: a.currency,
         bank: a.bank,
         account_subtype: a.account_subtype,
+        identification: a.identification,
       }));
 
       setAccounts(accountsData);
@@ -221,6 +223,11 @@ export default function AccountsPage() {
                       <p className="text-gray-500 text-sm">
                         {acc.status === "Enabled" ? "Активен" : "Не активен"} • {acc.currency}
                       </p>
+                      {acc.identification && (
+                        <p className="text-gray-400 text-xs mt-1 font-mono">
+                          ID: {acc.identification}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </motion.div>
@@ -276,6 +283,15 @@ export default function AccountsPage() {
                   <span className="font-semibold">Дата открытия:</span>{" "}
                   {selectedAccount.opening_date}
                 </p>
+                {(() => {
+                  const account = accounts.find(a => a.account_id === selectedAccount.account_id);
+                  return account?.identification && (
+                    <p>
+                      <span className="font-semibold">Идентификатор:</span>{" "}
+                      <span className="font-mono text-sm">{account.identification}</span>
+                    </p>
+                  );
+                })()}
 
                 {loadingDetails && (
                   <p className="text-gray-600 mt-3">Загрузка баланса...</p>

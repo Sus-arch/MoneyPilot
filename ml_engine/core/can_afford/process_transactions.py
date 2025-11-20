@@ -1,4 +1,5 @@
 import pandas as pd
+import os
 from typing import List, Dict
 
 from core.can_afford.dynamic_threshold import calculate_dynamic_threshold
@@ -19,7 +20,10 @@ def process_transactions(transactions: List[Dict]) -> pd.DataFrame:
     print("Данные о расходах о месяцах: ", monthly_expenses(transactions))
 
     tr = pd.DataFrame(transactions)
-    tr.to_csv("/app/exports/transactions.csv", index=False, encoding="utf-8")
+    # Используем /tmp для временных файлов, так как у пользователя app есть права на запись
+    export_dir = "/tmp/exports"
+    os.makedirs(export_dir, exist_ok=True)
+    tr.to_csv(f"{export_dir}/transactions.csv", index=False, encoding="utf-8")
 
     # Список слов-маркеров, которые нужно ИСКЛЮЧИТЬ из прогноза
     # Например: переводы людям, погашение кредитов (если это фиксированная сумма, ее проще прибавить вручную)

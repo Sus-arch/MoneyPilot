@@ -23,10 +23,10 @@ interface Recommendation {
 }
 
 interface Affordability {
-  title: string;
-  description: string;
-  category: string;
-  priority: "low" | "medium" | "high";
+  can_afford: boolean;
+  level: "SUCCESS" | "WARNING" | "CAUTION" | "CRITICAL";
+  message: string;
+  details: string;
 }
 
 const ACCOUNT_SUBTYPE_RU: Record<string, string> = {
@@ -60,6 +60,17 @@ export default function DashboardPage() {
   const [affordability, setAffordability] = useState<Affordability | null>(null);
   const [loadingAfford, setLoadingAfford] = useState(false);
   const [errorAfford, setErrorAfford] = useState("");
+
+  const [spendingForecast, setSpendingForecast] = useState<{
+    forecast: number;
+    details: {
+      variable_spending: number;
+      fixed_obligations: number;
+    };
+    next_month: string;
+  } | null>(null);
+  const [loadingForecast, setLoadingForecast] = useState(false);
+  const [errorForecast, setErrorForecast] = useState("");
 
   // Состояние подписки, сохраняем в localStorage
   const [isSubscribed, setIsSubscribed] = useState<boolean>(() => {
@@ -189,6 +200,41 @@ export default function DashboardPage() {
     }
   };
 
+  // 🔹 Получение прогноза расходов
+  const fetchSpendingForecast = async () => {
+    if (!currentBank || !bankTokens[currentBank]) return;
+    
+    setLoadingForecast(true);
+    setErrorForecast("");
+    setSpendingForecast(null);
+
+    try {
+      const response = await fetch("http://localhost:8000/predict_spending", {
+        headers: {
+          Authorization: `Bearer ${bankTokens[currentBank]}`,
+        },
+      });
+
+      if (!response.ok) throw new Error("Ошибка при получении прогноза");
+
+      const data = await response.json();
+      if (data.status === "success") {
+        setSpendingForecast({
+          forecast: data.forecast,
+          details: data.details,
+          next_month: data.next_month,
+        });
+      } else {
+        throw new Error(data.message || "Ошибка при получении прогноза");
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorForecast("Не удалось получить прогноз расходов");
+    } finally {
+      setLoadingForecast(false);
+    }
+  };
+
   // 🔹 Проверка возможности покупки
   const checkAffordability = async () => {
     if (!currentBank || !bankTokens[currentBank]) return;
@@ -209,7 +255,11 @@ export default function DashboardPage() {
       if (!response.ok) throw new Error("Ошибка при проверке покупки");
 
       const data = await response.json();
-      setAffordability(data?.data || null);
+      if (data.status === "success" && data.data) {
+        setAffordability(data.data);
+      } else {
+        throw new Error(data.message || "Ошибка при проверке покупки");
+      }
     } catch (err) {
       console.error(err);
       setErrorAfford("Не удалось проверить покупку");
@@ -226,6 +276,7 @@ export default function DashboardPage() {
     }
     fetchAccounts();
     fetchRecommendations();
+    fetchSpendingForecast();
   }, [currentBank]);
 
   // Ограничение рекомендаций для обычных пользователей
@@ -242,27 +293,82 @@ export default function DashboardPage() {
         Панель управления
       </h1>
 
-      {/* Общий баланс */}
-      <motion.div
-        className="bg-blue-100 rounded-2xl p-6 mb-8 text-center shadow-lg"
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ duration: 0.5 }}
-      >
-        <h2 className="text-xl font-semibold text-gray-700 mb-2">
-          Общий баланс
-        </h2>
-        {loadingAccounts ? (
-          <Loader2 className="w-6 h-6 mx-auto text-blue-700 animate-spin" />
-        ) : (
-          <p className="text-4xl font-bold text-blue-800">
-            {totalBalance.toLocaleString("ru-RU", {
-              style: "currency",
-              currency: "RUB",
-            })}
-          </p>
-        )}
-      </motion.div>
+      {/* Общий баланс и прогноз расходов */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <motion.div
+          className="bg-blue-100 rounded-2xl p-6 text-center shadow-lg"
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.5 }}
+        >
+          <h2 className="text-xl font-semibold text-gray-700 mb-2">
+            Общий баланс
+          </h2>
+          {loadingAccounts ? (
+            <Loader2 className="w-6 h-6 mx-auto text-blue-700 animate-spin" />
+          ) : (
+            <p className="text-4xl font-bold text-blue-800">
+              {totalBalance.toLocaleString("ru-RU", {
+                style: "currency",
+                currency: "RUB",
+              })}
+            </p>
+          )}
+        </motion.div>
+
+        <motion.div
+          className="bg-gradient-to-br from-purple-100 to-pink-100 rounded-2xl p-6 shadow-lg"
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+        >
+          <h2 className="text-xl font-semibold text-gray-700 mb-2">
+            Прогноз расходов
+          </h2>
+          {loadingForecast ? (
+            <Loader2 className="w-6 h-6 mx-auto text-purple-700 animate-spin" />
+          ) : errorForecast ? (
+            <p className="text-red-500 text-sm">{errorForecast}</p>
+          ) : spendingForecast ? (
+            <div className="space-y-2">
+              <p className="text-3xl font-bold text-purple-800">
+                {spendingForecast.forecast.toLocaleString("ru-RU", {
+                  style: "currency",
+                  currency: "RUB",
+                  maximumFractionDigits: 0,
+                })}
+              </p>
+              <p className="text-sm text-gray-600">
+                на {spendingForecast.next_month}
+              </p>
+              <div className="mt-3 pt-3 border-t border-purple-200 space-y-1">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Переменные расходы:</span>
+                  <span className="font-semibold text-purple-700">
+                    {spendingForecast.details.variable_spending.toLocaleString("ru-RU", {
+                      style: "currency",
+                      currency: "RUB",
+                      maximumFractionDigits: 0,
+                    })}
+                  </span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Фиксированные обязательства:</span>
+                  <span className="font-semibold text-purple-700">
+                    {spendingForecast.details.fixed_obligations.toLocaleString("ru-RU", {
+                      style: "currency",
+                      currency: "RUB",
+                      maximumFractionDigits: 0,
+                    })}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-gray-500 text-sm">Нет данных</p>
+          )}
+        </motion.div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Счета */}
@@ -418,15 +524,27 @@ export default function DashboardPage() {
             {affordability && (
               <div
                 className={`mt-2 p-3 rounded-lg border ${
-                  affordability.priority === "high"
-                    ? "border-red-400 bg-red-50"
-                    : affordability.priority === "medium"
+                  affordability.level === "CRITICAL"
+                    ? "border-red-500 bg-red-50"
+                    : affordability.level === "WARNING"
                     ? "border-yellow-400 bg-yellow-50"
+                    : affordability.level === "CAUTION"
+                    ? "border-orange-400 bg-orange-50"
                     : "border-green-400 bg-green-50"
                 }`}
               >
-                <p className="font-semibold text-gray-800">{affordability.title}</p>
-                <p className="text-gray-700 whitespace-pre-line">{affordability.description}</p>
+                <p className={`font-semibold mb-2 ${
+                  affordability.level === "CRITICAL"
+                    ? "text-red-800"
+                    : affordability.level === "WARNING"
+                    ? "text-yellow-800"
+                    : affordability.level === "CAUTION"
+                    ? "text-orange-800"
+                    : "text-green-800"
+                }`}>
+                  {affordability.message}
+                </p>
+                <p className="text-gray-700 whitespace-pre-line text-sm">{affordability.details}</p>
               </div>
             )}
           </div>

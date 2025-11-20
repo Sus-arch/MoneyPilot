@@ -43,9 +43,22 @@ const STATUS_RU: Record<string, string> = {
   failed: "Ошибка",
 };
 
+interface Account {
+  account_id: string;
+  nickname: string;
+  status: string;
+  currency: string;
+  bank: string;
+  account_subtype: string;
+  identification?: string;
+}
+
 export default function PaymentsPage() {
   const { currentBank, bankTokens } = useAuth();
   const [selectedBank, setSelectedBank] = useState<string | null>(currentBank || null);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [useDebtorFromList, setUseDebtorFromList] = useState(false);
   const [paymentData, setPaymentData] = useState({
     debtor_account: "",
     creditor_account: "",
@@ -66,6 +79,44 @@ export default function PaymentsPage() {
   const activeRequestIdRef = useRef<string | null>(null);
   const paymentStatusIntervalRef = useRef<number | null>(null);
 
+  // Загрузка счетов
+  const fetchAccounts = async (bankId: string) => {
+    const token = bankTokens[bankId];
+    if (!token) return;
+
+    setLoadingAccounts(true);
+    try {
+      const connectedBanks = Object.keys(bankTokens).filter((bank) => bankTokens[bank]);
+      const bankCodesHeader = connectedBanks.join(",");
+
+      const res = await get("/accounts", {
+        Authorization: `Bearer ${token}`,
+        "X-Bank-Code": bankCodesHeader,
+      });
+
+      const accountsData: Account[] = (res.accounts || []).map((a: any) => ({
+        account_id: a.account_id,
+        nickname: a.nickname,
+        status: a.status,
+        currency: a.currency,
+        bank: a.bank,
+        account_subtype: a.account_subtype,
+        identification: a.identification,
+      }));
+
+      setAccounts(accountsData);
+    } catch (err: any) {
+      console.error("Ошибка загрузки счетов:", err);
+    } finally {
+      setLoadingAccounts(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedBank && bankTokens[selectedBank]) {
+      fetchAccounts(selectedBank);
+    }
+  }, [selectedBank]);
 
   // Проверка наличия согласия на перевод
   const checkPaymentConsent = async (bankId: string, debtorAccountId: string, creditorAccount: string, amount: number) => {
@@ -164,7 +215,21 @@ export default function PaymentsPage() {
         }
 
         if (msg.status === "approved") {
-          setConsentResult({ ...msg, status: "approved" });
+          // Обновляем activeConsentIdRef на актуальный consent_id из WebSocket сообщения
+          if (msg.consent_id) {
+            activeConsentIdRef.current = msg.consent_id;
+            // Очищаем request_id, так как теперь есть consent_id
+            activeRequestIdRef.current = null;
+          }
+          // Обновляем consentResult с актуальным consent_id из WebSocket сообщения
+          // Важно: после подтверждения request_id заменяется на consent_id
+          setConsentResult({ 
+            ...msg, 
+            status: "approved", 
+            consent_id: msg.consent_id,
+            // Удаляем request_id, так как он больше недействителен
+            request_id: undefined
+          });
           setConsentError(null);
           // Закрываем модальное окно и продолжаем создание платежа
           setShowConsentModal(false);
@@ -266,14 +331,23 @@ export default function PaymentsPage() {
         return;
       }
 
-      // Получаем consent_id из результата согласия или из активного согласия
-      const consentId = consentResult?.consent_id || consentResult?.request_id || activeConsentIdRef.current || activeRequestIdRef.current;
+      // Приоритетно используем consent_id из WebSocket сообщения (после подтверждения)
+      // Важно: после подтверждения через WebSocket request_id заменяется на consent_id
+      // Поэтому используем только consent_id, request_id недействителен после подтверждения
+      let consentId = consentResult?.consent_id || activeConsentIdRef.current;
+      
+      // Если consent_id еще нет (согласие было одобрено сразу при создании), используем из результата
+      if (!consentId) {
+        consentId = consentResult?.consent_id || consentResult?.request_id || activeRequestIdRef.current;
+      }
 
       if (!consentId) {
         setError("Не удалось получить ID согласия");
         setLoading(false);
         return;
       }
+
+      console.log(`Используем consent_id для платежа: ${consentId} (из consentResult.consent_id: ${consentResult?.consent_id}, из activeConsentIdRef: ${activeConsentIdRef.current}, из consentResult.request_id: ${consentResult?.request_id})`);
 
       // Используем введенный идентификатор счета напрямую
       const debtorIdentification = paymentData.debtor_account;
@@ -544,18 +618,72 @@ export default function PaymentsPage() {
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-white mb-1">
-                      Счет списания *
-                    </label>
-                    <input
-                      type="text"
-                      value={paymentData.debtor_account}
-                      onChange={(e) =>
-                        setPaymentData({ ...paymentData, debtor_account: e.target.value })
-                      }
-                      placeholder="Номер счета списания"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-white bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-sm font-medium text-white">
+                        Счет списания *
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={useDebtorFromList}
+                          onChange={(e) => {
+                            setUseDebtorFromList(e.target.checked);
+                            if (!e.target.checked) {
+                              setPaymentData({ ...paymentData, debtor_account: "" });
+                            }
+                          }}
+                          className="w-4 h-4"
+                        />
+                        <span>Выбрать из списка</span>
+                      </label>
+                    </div>
+                    {useDebtorFromList ? (
+                      loadingAccounts ? (
+                        <div className="w-full border border-gray-300 rounded-lg px-3 py-2 text-white bg-gray-800 flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Загрузка счетов...</span>
+                        </div>
+                      ) : (
+                        <select
+                          value={paymentData.debtor_account}
+                          onChange={(e) => {
+                            const selectedAccount = accounts.find(
+                              (a) => a.identification === e.target.value
+                            );
+                            setPaymentData({
+                              ...paymentData,
+                              debtor_account: selectedAccount?.identification || e.target.value,
+                            });
+                          }}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-white bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="" className="bg-gray-800 text-white">
+                            Выберите счет
+                          </option>
+                          {accounts
+                            .filter((a) => a.bank === selectedBank && a.identification)
+                            .map((acc) => (
+                              <option
+                                key={acc.account_id}
+                                value={acc.identification}
+                                className="bg-gray-800 text-white"
+                              >
+                                {acc.nickname || acc.account_id} ({acc.identification})
+                              </option>
+                            ))}
+                        </select>
+                      )
+                    ) : (
+                      <input
+                        type="text"
+                        value={paymentData.debtor_account}
+                        onChange={(e) =>
+                          setPaymentData({ ...paymentData, debtor_account: e.target.value })
+                        }
+                        placeholder="Идентификатор счета списания"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-white bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    )}
                   </div>
 
                   <div>
@@ -568,7 +696,7 @@ export default function PaymentsPage() {
                       onChange={(e) =>
                         setPaymentData({ ...paymentData, creditor_account: e.target.value })
                       }
-                      placeholder="Номер счета получателя"
+                      placeholder="Идентификатор счета получателя"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-white bg-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
