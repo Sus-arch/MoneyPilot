@@ -446,6 +446,26 @@ func (r *Repository) UpsertProductAgreement(userID int, agreementID, productID s
 	return err
 }
 
+// UpsertProduct сохраняет или обновляет продукт каталога в БД
+func (r *Repository) UpsertProduct(bankID int, productID, productType, productName string, description *string, interestRate, minAmount, maxAmount *float64, termMonths *int) error {
+	_, err := r.DB.Exec(`
+		INSERT INTO products (product_id, bank_id, product_type, name, description, interest_rate, min_amount, max_amount, term_months, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+		ON CONFLICT (product_id)
+		DO UPDATE SET
+			bank_id = EXCLUDED.bank_id,
+			product_type = EXCLUDED.product_type,
+			name = EXCLUDED.name,
+			description = EXCLUDED.description,
+			interest_rate = EXCLUDED.interest_rate,
+			min_amount = EXCLUDED.min_amount,
+			max_amount = EXCLUDED.max_amount,
+			term_months = EXCLUDED.term_months,
+			updated_at = NOW()
+	`, productID, bankID, productType, productName, description, interestRate, minAmount, maxAmount, termMonths)
+	return err
+}
+
 // UpsertAccount сохраняет или обновляет счет в БД
 // Использует составной уникальный ключ (user_id, bank_id, account_number)
 func (r *Repository) UpsertAccount(

@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -228,4 +229,138 @@ func (s *Service) DeleteProduct(userID int, bankCode, agreementID string, payloa
 	// Пока оставляем в БД для истории
 
 	return nil
+}
+
+// ProductCatalogItem представляет продукт из каталога банка
+type ProductCatalogItem struct {
+	ProductID    string  `json:"productId"`
+	ProductType  string  `json:"productType"`
+	ProductName  string  `json:"productName"`
+	Description  *string `json:"description,omitempty"`
+	InterestRate *string `json:"interestRate,omitempty"`
+	MinAmount    *string `json:"minAmount,omitempty"`
+	MaxAmount    *string `json:"maxAmount,omitempty"`
+	TermMonths   *int    `json:"termMonths,omitempty"`
+}
+
+// GetProductsCatalog получает каталог продуктов из всех указанных банков
+// Не требует согласия, использует bank_token
+func (s *Service) GetProductsCatalog(userID int, bankCodes []string, productType string) (map[string]interface{}, error) {
+	// Получаем текущего пользователя для получения client_id
+	currentUser, err := s.Repo.GetUserByID(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load current user: %w", err)
+	}
+
+	// Если bankCodes не указаны, получаем все банки
+	if len(bankCodes) == 0 {
+		for code := range s.BankClients {
+			bankCodes = append(bankCodes, code)
+		}
+	}
+
+	var allProducts []ProductCatalogItem
+	ctx := context.Background()
+
+	for _, bankCode := range bankCodes {
+		bankCode = strings.ToLower(strings.TrimSpace(bankCode))
+		bankClient, ok := s.BankClients[bankCode]
+		if !ok || bankClient == nil {
+			continue
+		}
+
+		// Получаем bank_id для этого банка
+		bank, err := s.Repo.GetBankByCode(bankCode)
+		if err != nil {
+			continue
+		}
+
+		// Получаем правильного пользователя для этого банка по client_id и bank_id
+		bankUser, err := s.Repo.GetUserByClientIDAndBankID(currentUser.ClientID, bank.ID)
+		if err != nil {
+			continue
+		}
+
+		// Получаем token для банка
+		tokenObj, err := s.TokenSvc.GetValidToken(bankClient)
+		if err != nil {
+			continue
+		}
+
+		// Формируем URL с опциональным фильтром product_type
+		url := strings.TrimRight(bankClient.BaseURL, "/") + "/products?client_id=" + bankUser.ClientID
+		if productType != "" {
+			url += "&product_type=" + productType
+		}
+
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("Authorization", "Bearer "+tokenObj.Token)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("x-requesting-bank", "team081")
+
+		// Генерируем ключ кэша
+		cacheKey := fmt.Sprintf("products_catalog:%s:%s:%s", bankCode, productType, bankUser.ClientID)
+
+		// Используем обертку с кэшированием, retry, rate limiting и circuit breaker
+		resp, err := s.HTTPWrapper.Do(ctx, bankCode, req, cacheKey, true)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+
+		body, _ := io.ReadAll(resp.Body)
+
+		var parsed struct {
+			Data struct {
+				Product []ProductCatalogItem `json:"product"`
+			} `json:"data"`
+		}
+
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			continue
+		}
+
+		// Сохраняем продукты в БД
+		for _, p := range parsed.Data.Product {
+			// Парсим числовые значения
+			var interestRate *float64
+			if p.InterestRate != nil && *p.InterestRate != "" {
+				if rate, err := strconv.ParseFloat(*p.InterestRate, 64); err == nil {
+					interestRate = &rate
+				}
+			}
+
+			var minAmount, maxAmount *float64
+			if p.MinAmount != nil && *p.MinAmount != "" {
+				if amt, err := strconv.ParseFloat(*p.MinAmount, 64); err == nil {
+					minAmount = &amt
+				}
+			}
+			if p.MaxAmount != nil && *p.MaxAmount != "" {
+				if amt, err := strconv.ParseFloat(*p.MaxAmount, 64); err == nil {
+					maxAmount = &amt
+				}
+			}
+
+			// Сохраняем продукт в БД
+			if err := s.Repo.UpsertProduct(bank.ID, p.ProductID, p.ProductType, p.ProductName, p.Description, interestRate, minAmount, maxAmount, p.TermMonths); err != nil {
+				log.Printf("Failed to save product %s to DB: %v\n", p.ProductID, err)
+			}
+		}
+
+		// Добавляем продукты в общий список
+		allProducts = append(allProducts, parsed.Data.Product...)
+	}
+
+	result := map[string]interface{}{
+		"data": map[string]interface{}{
+			"product": allProducts,
+		},
+	}
+
+	return result, nil
 }

@@ -112,6 +112,7 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	secured.GET("/accounts/:account_id/details", accountHandler.GetAccountDetails)
 
 	secured.GET("/products", productAgreementHandler.ListProducts)
+	secured.GET("/products/catalog", productAgreementHandler.GetProductsCatalog) // Каталог продуктов банков
 	secured.GET("/products/:agreement_id", productAgreementHandler.GetProductDetails)
 	secured.DELETE("/products/:agreement_id", productAgreementHandler.DeleteProduct)
 	return r
