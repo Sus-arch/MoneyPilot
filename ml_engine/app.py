@@ -131,35 +131,32 @@ async def predict_spending(authorization: str = Header(...)):
     """Прогнозирует расходы на следующий месяц."""
     try:
         client = GoApiClient(token=authorization)
-        print("accounts1")
         accounts = await client.get_accounts()
-        print("accounts2")
         transactions = []
+        print("test1")
         for acc in accounts:
             t = await client.get_transactions(
                 account_id=acc["account_id"],
                 bank_code=acc["bank"],
             )
-            print("accounts3")
             transactions.extend(t)
+            print("test2")
 
-        print("accounts4")
         df = transactions_to_df(transactions)
-        print("accounts5")
-        print(df)
-
+        print("test3")
         # Обучаем Prophet
-        model = Prophet(daily_seasonality=True, weekly_seasonality=True, yearly_seasonality=True)
+        model = Prophet(daily_seasonality=True, weekly_seasonality=True, yearly_seasonality=False)
         model.fit(df)
 
-        # Прогноз на следующий месяц
-        last_date = df['ds'].max()
-        future_dates = pd.date_range(last_date + timedelta(days=1), last_date + timedelta(days=30))
-        future_df = pd.DataFrame({'ds': future_dates})
+        # Прогноз на следующий месяц (30 дней)
+        future = model.make_future_dataframe(periods=30)
+        forecast = model.predict(future)
 
-        forecast = model.predict(future_df)
+        # Берем только будущие значения (последние 30 дней прогноза)
+        predicted_period = forecast.tail(30)
 
-        total_predicted = forecast['yhat'].sum()
+        # Суммируем прогноз (yhat), игнорируя возможные отрицательные выбросы (траты не могут быть < 0)
+        total_predicted = predicted_period['yhat'].clip(lower=0).sum()
 
         return {
             "status": "success",
