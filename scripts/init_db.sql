@@ -33,11 +33,17 @@ CREATE TABLE accounts (
     bank_id INT REFERENCES banks(id) ON DELETE CASCADE,
     account_number VARCHAR(64) NOT NULL,
     account_type VARCHAR(32) DEFAULT 'checking',
+    account_subtype VARCHAR(32),
     nickname VARCHAR(64),
     currency VARCHAR(8) DEFAULT 'RUB',
     balance NUMERIC(18,2) DEFAULT 0,
     status VARCHAR(32) DEFAULT 'active',
+    owner_name VARCHAR(255),
+    opening_date DATE,
+    scheme_name VARCHAR(64),
+    identification VARCHAR(128),
     created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(user_id, bank_id, account_number)
 );
 

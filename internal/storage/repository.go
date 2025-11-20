@@ -37,6 +37,17 @@ func (r *Repository) GetBankByCode(code string) (*Bank, error) {
 	return &b, nil
 }
 
+// GetBankByID получает банк по ID
+func (r *Repository) GetBankByID(id int) (*Bank, error) {
+	var b Bank
+	err := r.DB.QueryRow(`SELECT id, code, name, api_base_url, jwks_url, created_at FROM banks WHERE id=$1`, id).
+		Scan(&b.ID, &b.Code, &b.Name, &b.APIBase, &b.JWKSURL, &b.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &b, nil
+}
+
 func (r *Repository) GetUserByID(id int) (*User, error) {
 	var b User
 	err := r.DB.QueryRow(`SELECT id, client_id, bank_id, email, password_hash, segment, created_at FROM users WHERE id=$1`, id).
@@ -437,19 +448,34 @@ func (r *Repository) UpsertProductAgreement(userID int, agreementID, productID s
 
 // UpsertAccount сохраняет или обновляет счет в БД
 // Использует составной уникальный ключ (user_id, bank_id, account_number)
-func (r *Repository) UpsertAccount(userID, bankID int, accountNumber, accountType, nickname, currency, status string) error {
+func (r *Repository) UpsertAccount(
+	userID, bankID int,
+	accountNumber, accountType, accountSubType, nickname, currency, status string,
+	ownerName, schemeName, identification *string,
+	openingDate *time.Time,
+) error {
 	_, err := r.DB.Exec(`
-		INSERT INTO accounts (user_id, bank_id, account_number, account_type, nickname, currency, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO accounts (
+			user_id, bank_id, account_number, account_type, account_subtype,
+			nickname, currency, status, owner_name, opening_date,
+			scheme_name, identification, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
 		ON CONFLICT (user_id, bank_id, account_number) 
 		DO UPDATE SET 
 			account_type = EXCLUDED.account_type,
+			account_subtype = EXCLUDED.account_subtype,
 			nickname = EXCLUDED.nickname,
 			currency = EXCLUDED.currency,
 			status = EXCLUDED.status,
-			user_id = EXCLUDED.user_id,
-			bank_id = EXCLUDED.bank_id
-	`, userID, bankID, accountNumber, accountType, nickname, currency, status)
+			owner_name = EXCLUDED.owner_name,
+			opening_date = EXCLUDED.opening_date,
+			scheme_name = EXCLUDED.scheme_name,
+			identification = EXCLUDED.identification,
+			updated_at = NOW()
+	`, userID, bankID, accountNumber, accountType, accountSubType,
+		nickname, currency, status, ownerName, openingDate,
+		schemeName, identification)
 	return err
 }
 
@@ -466,18 +492,158 @@ func (r *Repository) UpdateAccountBalance(userID, bankID int, accountNumber stri
 // GetAccountByNumber получает счет по номеру
 func (r *Repository) GetAccountByNumber(accountNumber string) (*Account, error) {
 	var acc Account
+	var accountSubType, nickname, ownerName, schemeName, identification sql.NullString
+	var openingDate sql.NullTime
+
 	err := r.DB.QueryRow(`
-		SELECT id, user_id, bank_id, account_number, account_type, nickname, currency, balance, status, created_at
+		SELECT id, user_id, bank_id, account_number, account_type, account_subtype,
+			nickname, currency, balance, status, owner_name, opening_date,
+			scheme_name, identification, created_at, updated_at
 		FROM accounts 
 		WHERE account_number = $1
 	`, accountNumber).Scan(
 		&acc.ID, &acc.UserID, &acc.BankID, &acc.AccountNumber, &acc.AccountType,
-		&acc.Nickname, &acc.Currency, &acc.Balance, &acc.Status, &acc.CreatedAt,
+		&accountSubType, &nickname, &acc.Currency, &acc.Balance, &acc.Status,
+		&ownerName, &openingDate, &schemeName, &identification,
+		&acc.CreatedAt, &acc.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	if accountSubType.Valid {
+		acc.AccountSubType = &accountSubType.String
+	}
+	if nickname.Valid {
+		acc.Nickname = &nickname.String
+	}
+	if ownerName.Valid {
+		acc.OwnerName = &ownerName.String
+	}
+	if openingDate.Valid {
+		acc.OpeningDate = &openingDate.Time
+	}
+	if schemeName.Valid {
+		acc.SchemeName = &schemeName.String
+	}
+	if identification.Valid {
+		acc.Identification = &identification.String
+	}
+
 	return &acc, nil
+}
+
+// GetAccountsByUserID получает все счета пользователя
+func (r *Repository) GetAccountsByUserID(userID int) ([]Account, error) {
+	rows, err := r.DB.Query(`
+		SELECT id, user_id, bank_id, account_number, account_type, account_subtype,
+			nickname, currency, balance, status, owner_name, opening_date,
+			scheme_name, identification, created_at, updated_at
+		FROM accounts
+		WHERE user_id = $1
+		ORDER BY created_at DESC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var accounts []Account
+	for rows.Next() {
+		var acc Account
+		var accountSubType, nickname, ownerName, schemeName, identification sql.NullString
+		var openingDate sql.NullTime
+
+		err := rows.Scan(
+			&acc.ID, &acc.UserID, &acc.BankID, &acc.AccountNumber, &acc.AccountType,
+			&accountSubType, &nickname, &acc.Currency, &acc.Balance, &acc.Status,
+			&ownerName, &openingDate, &schemeName, &identification,
+			&acc.CreatedAt, &acc.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if accountSubType.Valid {
+			acc.AccountSubType = &accountSubType.String
+		}
+		if nickname.Valid {
+			acc.Nickname = &nickname.String
+		}
+		if ownerName.Valid {
+			acc.OwnerName = &ownerName.String
+		}
+		if openingDate.Valid {
+			acc.OpeningDate = &openingDate.Time
+		}
+		if schemeName.Valid {
+			acc.SchemeName = &schemeName.String
+		}
+		if identification.Valid {
+			acc.Identification = &identification.String
+		}
+
+		accounts = append(accounts, acc)
+	}
+
+	return accounts, nil
+}
+
+// GetAccountsByClientID получает все счета для всех пользователей с одинаковым client_id
+func (r *Repository) GetAccountsByClientID(clientID string) ([]Account, error) {
+	rows, err := r.DB.Query(`
+		SELECT a.id, a.user_id, a.bank_id, a.account_number, a.account_type, a.account_subtype,
+			a.nickname, a.currency, a.balance, a.status, a.owner_name, a.opening_date,
+			a.scheme_name, a.identification, a.created_at, a.updated_at
+		FROM accounts a
+		INNER JOIN users u ON u.id = a.user_id
+		WHERE u.client_id = $1
+		ORDER BY a.created_at DESC
+	`, clientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var accounts []Account
+	for rows.Next() {
+		var acc Account
+		var accountSubType, nickname, ownerName, schemeName, identification sql.NullString
+		var openingDate sql.NullTime
+
+		err := rows.Scan(
+			&acc.ID, &acc.UserID, &acc.BankID, &acc.AccountNumber, &acc.AccountType,
+			&accountSubType, &nickname, &acc.Currency, &acc.Balance, &acc.Status,
+			&ownerName, &openingDate, &schemeName, &identification,
+			&acc.CreatedAt, &acc.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if accountSubType.Valid {
+			acc.AccountSubType = &accountSubType.String
+		}
+		if nickname.Valid {
+			acc.Nickname = &nickname.String
+		}
+		if ownerName.Valid {
+			acc.OwnerName = &ownerName.String
+		}
+		if openingDate.Valid {
+			acc.OpeningDate = &openingDate.Time
+		}
+		if schemeName.Valid {
+			acc.SchemeName = &schemeName.String
+		}
+		if identification.Valid {
+			acc.Identification = &identification.String
+		}
+
+		accounts = append(accounts, acc)
+	}
+
+	return accounts, nil
 }
 
 // GetValidPaymentConsentsByUserIDAndBank получает активные согласия на платежи для пользователя и банка

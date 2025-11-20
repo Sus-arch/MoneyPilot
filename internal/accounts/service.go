@@ -9,9 +9,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 type Service struct {
@@ -155,8 +157,11 @@ func (s *Service) FetchAllUserAccounts(userID int, bankCodes []string) ([]BankAc
 					AccountType    string `json:"accountType"`
 					AccountSubType string `json:"accountSubType"`
 					Nickname       string `json:"nickname"`
+					OpeningDate    string `json:"openingDate"`
 					Account        []struct {
-						Name string `json:"name"`
+						SchemeName     string `json:"schemeName"`
+						Identification string `json:"identification"`
+						Name           string `json:"name"`
 					} `json:"account"`
 				} `json:"account"`
 			} `json:"data"`
@@ -197,7 +202,38 @@ func (s *Service) FetchAllUserAccounts(userID int, bankCodes []string) ([]BankAc
 			if accountType == "" {
 				accountType = "checking"
 			}
-			if err := s.repo.UpsertAccount(bankUser.ID, bank.ID, a.AccountID, accountType, a.Nickname, a.Currency, a.Status); err != nil {
+
+			// Парсим openingDate
+			var openingDate *time.Time
+			if a.OpeningDate != "" {
+				if parsed, err := time.Parse("2006-01-02", a.OpeningDate); err == nil {
+					openingDate = &parsed
+				}
+			}
+
+			// Извлекаем schemeName, identification и ownerName из массива Account
+			var schemeName, identification, ownerName *string
+			if len(a.Account) > 0 {
+				acc := a.Account[0]
+				if acc.SchemeName != "" {
+					schemeName = &acc.SchemeName
+				}
+				if acc.Identification != "" {
+					identification = &acc.Identification
+				}
+				if acc.Name != "" {
+					ownerName = &acc.Name
+				}
+			}
+
+			accountSubType := a.AccountSubType
+			nickname := a.Nickname
+
+			if err := s.repo.UpsertAccount(
+				bankUser.ID, bank.ID, a.AccountID,
+				accountType, accountSubType, nickname, a.Currency, a.Status,
+				ownerName, schemeName, identification, openingDate,
+			); err != nil {
 				fmt.Printf("Failed to save account %s to DB for user %d (client_id=%s), bank %s: %v\n", a.AccountID, bankUser.ID, bankUser.ClientID, bankCode, err)
 			}
 
@@ -384,5 +420,91 @@ func (s *Service) proxyBankRequest(userID int, bankCode, path string) (map[strin
 			}
 		}
 	}
+	return result, nil
+}
+
+// GetUserAccountsFromDB получает все счета пользователя из БД
+func (s *Service) GetUserAccountsFromDB(userID int, bankCodes []string) (map[string]interface{}, error) {
+	// Получаем текущего пользователя для получения client_id
+	currentUser, err := s.repo.GetUserByID(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load current user: %w", err)
+	}
+
+	// Получаем все счета для всех пользователей с одинаковым client_id
+	// (у одного client_id могут быть разные user_id для разных банков)
+	allAccounts, err := s.repo.GetAccountsByClientID(currentUser.ClientID)
+	log.Println("allAccounts by client_id", currentUser.ClientID, ":", allAccounts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load accounts: %w", err)
+	}
+
+	// Если указаны bankCodes, фильтруем счета по банкам
+	var accounts []storage.Account
+	if len(bankCodes) > 0 {
+		// Создаем map для быстрой проверки bankCodes
+		bankIDMap := make(map[int]string) // bank_id -> bank_code
+
+		// Загружаем информацию о банках
+		for _, code := range bankCodes {
+			code = strings.ToLower(strings.TrimSpace(code))
+			bank, err := s.repo.GetBankByCode(code)
+			if err == nil {
+				bankIDMap[bank.ID] = code
+			}
+		}
+
+		// Фильтруем счета по банкам
+		for _, acc := range allAccounts {
+			if _, ok := bankIDMap[acc.BankID]; ok {
+				accounts = append(accounts, acc)
+			}
+		}
+	} else {
+		// Возвращаем все счета
+		accounts = allAccounts
+	}
+
+	// Преобразуем счета в старый формат с добавлением identification
+	var accountList []map[string]interface{}
+
+	for _, acc := range accounts {
+		// Получаем код банка по bank_id
+		bank, err := s.repo.GetBankByID(acc.BankID)
+		if err != nil {
+			// Если не можем найти банк, пропускаем счет
+			continue
+		}
+		bankCode := bank.Code
+
+		accountItem := map[string]interface{}{
+			"bank":         bankCode,
+			"account_id":   acc.AccountNumber,
+			"account_type": acc.AccountType,
+			"currency":     acc.Currency,
+			"status":       acc.Status,
+		}
+
+		if acc.AccountSubType != nil {
+			accountItem["account_subtype"] = *acc.AccountSubType
+		}
+		if acc.Nickname != nil {
+			accountItem["nickname"] = *acc.Nickname
+		}
+		if acc.Identification != nil {
+			accountItem["identification"] = *acc.Identification
+		}
+		if acc.OwnerName != nil {
+			accountItem["owner"] = *acc.OwnerName
+		}
+
+		accountList = append(accountList, accountItem)
+	}
+
+	result := map[string]interface{}{
+		"accounts": accountList,
+		"total":    len(accountList),
+	}
+
 	return result, nil
 }

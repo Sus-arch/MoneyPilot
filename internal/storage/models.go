@@ -22,16 +22,22 @@ type Bank struct {
 }
 
 type Account struct {
-	ID            int       `db:"id" json:"id"`
-	UserID        int       `db:"user_id" json:"user_id"`
-	BankID        int       `db:"bank_id" json:"bank_id"`
-	AccountNumber string    `db:"account_number" json:"account_number"`
-	AccountType   string    `db:"account_type" json:"account_type"`
-	Nickname      *string   `db:"nickname" json:"nickname"`
-	Currency      string    `db:"currency" json:"currency"`
-	Balance       float64   `db:"balance" json:"balance"`
-	Status        string    `db:"status" json:"status"`
-	CreatedAt     time.Time `db:"created_at" json:"created_at"`
+	ID             int        `db:"id" json:"id"`
+	UserID         int        `db:"user_id" json:"user_id"`
+	BankID         int        `db:"bank_id" json:"bank_id"`
+	AccountNumber  string     `db:"account_number" json:"account_number"`
+	AccountType    string     `db:"account_type" json:"account_type"`
+	AccountSubType *string    `db:"account_subtype" json:"account_subtype"`
+	Nickname       *string    `db:"nickname" json:"nickname"`
+	Currency       string     `db:"currency" json:"currency"`
+	Balance        float64    `db:"balance" json:"balance"`
+	Status         string     `db:"status" json:"status"`
+	OwnerName      *string    `db:"owner_name" json:"owner_name"`
+	OpeningDate    *time.Time `db:"opening_date" json:"opening_date"`
+	SchemeName     *string    `db:"scheme_name" json:"scheme_name"`
+	Identification *string    `db:"identification" json:"identification"`
+	CreatedAt      time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt      time.Time  `db:"updated_at" json:"updated_at"`
 }
 
 type Transaction struct {
