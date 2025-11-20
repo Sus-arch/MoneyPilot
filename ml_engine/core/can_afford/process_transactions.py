@@ -16,7 +16,6 @@ def process_transactions(transactions: List[Dict]) -> pd.DataFrame:
     variable_txs = []
     fixed_txs = []
 
-    print("Кол-во транзакций: ", len(transactions))
     print("Данные о расходах о месяцах: ", monthly_expenses(transactions))
 
     tr = pd.DataFrame(transactions)

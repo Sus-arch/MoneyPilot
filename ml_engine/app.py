@@ -8,8 +8,9 @@ from prophet import Prophet
 import pandas as pd
 
 from core.advisor import generate_advice
+from core.can_afford.calculate_forecast import calculate_forecast
 from core.can_afford.can_afford_rule import can_afford_rule
-from core.can_afford.transactions_to_df import process_transactions
+from core.can_afford.process_transactions import process_transactions
 from services.go_api_client import GoApiClient
 
 app = FastAPI(title="FinBalance ML Engine")
@@ -87,8 +88,8 @@ async def analyze(authorization: str = Header(..., description="Bearer токе�
 
 @app.get("/can_afford")
 async def can_afford(
-    amount: float = Query(..., description="Сумма предполагаемой покупки"),
-    authorization: str = Header(..., description="Bearer токен пользователя")
+        amount: float = Query(..., description="Сумма предполагаемой покупки"),
+        authorization: str = Header(..., description="Bearer токен пользователя")
 ):
     """
     Проверяет, может ли пользователь позволить себе покупку на указанную сумму.
@@ -116,13 +117,13 @@ async def can_afford(
             transactions.extend(t)
 
         client_data = {"accounts": accounts, "balances": balances, "transactions": transactions}
-
-
+        print("test0")
         recommendation = can_afford_rule(client_data, amount)
         return {"status": "success", "data": recommendation}
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
 
 @app.get("/predict_spending")
 async def predict_spending(authorization: str = Header(...)):
@@ -137,64 +138,19 @@ async def predict_spending(authorization: str = Header(...)):
                 bank_code=acc["bank"],
             )
             transactions.extend(t)
-
-        print("test1")
-        variable_data, fixed_data = process_transactions(transactions)
-        print("test2")
-        # Prophet (еда, такси, магазины)
-        forecast_variable = 0.0
-        if variable_data:
-            df_var = pd.DataFrame(variable_data)
-            df_var["ds"] = pd.to_datetime(df_var["ds"]).dt.tz_localize(None)
-            print("test3")
-            # Агрегация по дням
-            df_var = df_var.groupby("ds")["y"].sum().reset_index()
-            print("test4")
-            # Заполнение пропусков нулями
-            df_var = df_var.set_index('ds').reindex(
-                pd.date_range(start=df_var['ds'].min(), end=df_var['ds'].max()),
-                fill_value=0
-            ).reset_index().rename(columns={'index': 'ds'})
-
-            print("test5")
-
-            # Обучение
-            m = Prophet(daily_seasonality=False, weekly_seasonality=True, yearly_seasonality=False)
-            m.fit(df_var)
-
-            # Прогноз на 30 дней
-            future = m.make_future_dataframe(periods=30)
-            forecast = m.predict(future)
-
-            # Берем сумму только за будущие 30 дней
-            forecast_variable = forecast.tail(30)['yhat'].clip(lower=0).sum()
-
-            # Математика для Фиксированных расходов
-            forecast_fixed = 0.0
-            if fixed_data:
-                df_fixed = pd.DataFrame(fixed_data)
-
-                # Считаем общую сумму фиксированных трат за каждый месяц
-                monthly_fixed = df_fixed.groupby("month")["amount"].sum()
-
-                # Берем МЕДИАНУ или МАКСИМУМ за последние месяцы
-                # Медиана лучше, если были дубли. Максимум лучше, если вы боитесь занизить прогноз.
-                # Используем среднее между последним месяцем и медианой для безопасности.
-                last_month_val = monthly_fixed.iloc[-1]
-                median_val = monthly_fixed.median()
-                forecast_fixed = max(last_month_val, median_val)
-            print("test6")
-            total = forecast_variable + forecast_fixed
-
-            return {
-                "status": "success",
-                "forecast": round(total, 2),
-                "details": {
-                    "variable_spending": round(forecast_variable, 2),
-                    "fixed_obligations": round(forecast_fixed, 2)
-                },
-                "next_month": (datetime.utcnow() + relativedelta(months=1)).strftime("%B %Y")
-            }
+        print("test0")
+        forecast_variable, forecast_fixed = calculate_forecast(transactions)
+        total = forecast_variable + forecast_fixed
+        print("test9")
+        return {
+            "status": "success",
+            "forecast": round(total, 2),
+            "details": {
+                "variable_spending": round(forecast_variable, 2),
+                "fixed_obligations": round(forecast_fixed, 2)
+            },
+            "next_month": (datetime.utcnow() + relativedelta(months=1)).strftime("%B %Y")
+        }
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
