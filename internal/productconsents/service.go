@@ -46,6 +46,7 @@ func (s *Service) CreateConsent(ctx context.Context, userID int, bankCode string
 	}
 	// 1️⃣ Проверка существующего согласия
 	existing, err := s.Repo.GetActiveProductConsentByUserAndBank(userID, bankCode)
+	log.Println(existing)
 	if err != nil {
 		log.Println(err.Error())
 	}

@@ -373,7 +373,7 @@ func (r *Repository) GetUserByUserIDAndBank(userID int, bankCode string) (*User,
 
 func (r *Repository) GetActiveProductConsentByUserAndBank(userID int, bankCode string) (*ProductAgreementConsent, error) {
 	user, err := r.GetUserByUserIDAndBank(userID, bankCode)
-	// log.Println(user)
+	log.Println(user)
 	rows, err := r.DB.Query(`
 		SELECT ac.id, ac.request_id , ac.consent_id, ac.user_id, ac.bank_id, b.code, ac.requesting_bank,
 			   ac.read_product_agreements, ac.open_product_agreements, ac.close_product_agreements,
@@ -402,4 +402,47 @@ func (r *Repository) GetActiveProductConsentByUserAndBank(userID int, bankCode s
 func (r *Repository) DeleteProductConsent(consentID string) error {
 	_, err := r.DB.Exec(`DELETE FROM product_agreement_consents WHERE consent_id=$1`, consentID)
 	return err
+}
+
+// UpsertAccount сохраняет или обновляет счет в БД
+// accountNumber используется как уникальный идентификатор (account_id из API)
+func (r *Repository) UpsertAccount(userID, bankID int, accountNumber, accountType, nickname, currency, status string) error {
+	_, err := r.DB.Exec(`
+		INSERT INTO accounts (user_id, bank_id, account_number, account_type, nickname, currency, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (account_number) 
+		DO UPDATE SET 
+			account_type = EXCLUDED.account_type,
+			nickname = EXCLUDED.nickname,
+			currency = EXCLUDED.currency,
+			status = EXCLUDED.status
+	`, userID, bankID, accountNumber, accountType, nickname, currency, status)
+	return err
+}
+
+// UpdateAccountBalance обновляет баланс счета
+func (r *Repository) UpdateAccountBalance(accountNumber string, balance float64) error {
+	_, err := r.DB.Exec(`
+		UPDATE accounts 
+		SET balance = $1 
+		WHERE account_number = $2
+	`, balance, accountNumber)
+	return err
+}
+
+// GetAccountByNumber получает счет по номеру
+func (r *Repository) GetAccountByNumber(accountNumber string) (*Account, error) {
+	var acc Account
+	err := r.DB.QueryRow(`
+		SELECT id, user_id, bank_id, account_number, account_type, nickname, currency, balance, status, created_at
+		FROM accounts 
+		WHERE account_number = $1
+	`, accountNumber).Scan(
+		&acc.ID, &acc.UserID, &acc.BankID, &acc.AccountNumber, &acc.AccountType,
+		&acc.Nickname, &acc.Currency, &acc.Balance, &acc.Status, &acc.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &acc, nil
 }
