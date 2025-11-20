@@ -101,12 +101,17 @@ CREATE TABLE payment_consents (
 CREATE TABLE payments (
     id SERIAL PRIMARY KEY,
     payment_id VARCHAR(64) UNIQUE NOT NULL,
-    user_id INT REFERENCES users(id),
-    debtor_account VARCHAR(64),
-    creditor_account VARCHAR(64),
-    amount NUMERIC(18,2),
-    currency VARCHAR(8),
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    bank_id INT REFERENCES banks(id) ON DELETE CASCADE,
+    debtor_account VARCHAR(64) NOT NULL,
+    creditor_account VARCHAR(64) NOT NULL,
+    creditor_bank_code VARCHAR(32), -- для межбанковских переводов (vbank, abank, sbank)
+    amount NUMERIC(18,2) NOT NULL,
+    currency VARCHAR(8) DEFAULT 'RUB',
+    comment TEXT,
+    description TEXT,
     status VARCHAR(32) DEFAULT 'pending',
+    payment_consent_id VARCHAR(64), -- связь с согласием на платеж
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -181,6 +186,11 @@ CREATE INDEX idx_payment_consents_bank_id ON payment_consents(bank_id);
 CREATE INDEX idx_payment_consents_status ON payment_consents(status);
 CREATE INDEX idx_payment_consents_consent_id ON payment_consents(consent_id);
 CREATE INDEX idx_payment_consents_request_id ON payment_consents(request_id);
+CREATE INDEX idx_payments_user_id ON payments(user_id);
+CREATE INDEX idx_payments_bank_id ON payments(bank_id);
+CREATE INDEX idx_payments_status ON payments(status);
+CREATE INDEX idx_payments_payment_id ON payments(payment_id);
+CREATE INDEX idx_payments_payment_consent_id ON payments(payment_consent_id);
 
 
 -- Cоздание 10 пользователей
