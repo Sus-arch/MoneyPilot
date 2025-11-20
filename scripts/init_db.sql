@@ -69,16 +69,32 @@ CREATE TABLE account_consents (
 -- 💸 Платежные согласия
 CREATE TABLE payment_consents (
     id SERIAL PRIMARY KEY,
-    consent_id VARCHAR(64) UNIQUE NOT NULL,
-    user_id INT REFERENCES users(id),
-    bank_id INT REFERENCES banks(id),
-    consent_type VARCHAR(32),
+    request_id VARCHAR(64) UNIQUE NOT NULL,
+    consent_id VARCHAR(64),
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    bank_id INT REFERENCES banks(id) ON DELETE CASCADE,
+    requesting_bank VARCHAR(64),
+    consent_type VARCHAR(32) NOT NULL,
     amount NUMERIC(18,2),
+    currency VARCHAR(8),
     debtor_account VARCHAR(64),
     creditor_account VARCHAR(64),
+    creditor_name VARCHAR(255),
+    reference TEXT,
+    max_uses INT,
+    max_amount_per_payment NUMERIC(18,2),
+    max_total_amount NUMERIC(18,2),
+    allowed_creditor_accounts TEXT[], -- массив счетов получателей
+    vrp_max_individual_amount NUMERIC(18,2),
+    vrp_daily_limit NUMERIC(18,2),
+    vrp_monthly_limit NUMERIC(18,2),
+    valid_from TIMESTAMP,
     valid_until TIMESTAMP,
-    status VARCHAR(32) DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT NOW()
+    reason TEXT,
+    status VARCHAR(32) DEFAULT 'pending',
+    expires_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 
 -- 💰 Платежи
@@ -160,6 +176,11 @@ CREATE INDEX idx_accounts_user_id ON accounts(user_id);
 CREATE INDEX idx_transactions_account_id ON transactions(account_id);
 CREATE INDEX idx_api_cache_key ON api_cache(cache_key);
 CREATE INDEX idx_api_cache_expires_at ON api_cache(expires_at);
+CREATE INDEX idx_payment_consents_user_id ON payment_consents(user_id);
+CREATE INDEX idx_payment_consents_bank_id ON payment_consents(bank_id);
+CREATE INDEX idx_payment_consents_status ON payment_consents(status);
+CREATE INDEX idx_payment_consents_consent_id ON payment_consents(consent_id);
+CREATE INDEX idx_payment_consents_request_id ON payment_consents(request_id);
 
 
 -- Cоздание 10 пользователей

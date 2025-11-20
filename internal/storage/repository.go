@@ -479,3 +479,336 @@ func (r *Repository) GetAccountByNumber(accountNumber string) (*Account, error) 
 	}
 	return &acc, nil
 }
+
+// GetValidPaymentConsentsByUserIDAndBank получает активные согласия на платежи для пользователя и банка
+func (r *Repository) GetValidPaymentConsentsByUserIDAndBank(userID int, bankCode, consentType string) ([]PaymentConsent, error) {
+	user, err := r.GetUserByID(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	var query string
+	var args []interface{}
+
+	if consentType != "" {
+		query = `
+			SELECT 
+				pc.id, pc.request_id, pc.consent_id, pc.user_id, pc.bank_id, 
+				b.code AS bank_code, pc.requesting_bank, pc.consent_type,
+				pc.amount, pc.currency, pc.debtor_account, pc.creditor_account,
+				pc.creditor_name, pc.reference, pc.max_uses, pc.max_amount_per_payment,
+				pc.max_total_amount, pc.allowed_creditor_accounts,
+				pc.vrp_max_individual_amount, pc.vrp_daily_limit, pc.vrp_monthly_limit,
+				pc.valid_from, pc.valid_until, pc.reason, pc.status, pc.expires_at,
+				pc.created_at, pc.updated_at
+			FROM payment_consents pc
+			LEFT JOIN banks b ON b.id = pc.bank_id
+			WHERE pc.user_id IN (SELECT id FROM users WHERE client_id=$1)
+			  AND b.code = $2
+			  AND pc.consent_type = $3
+			  AND pc.status IN ('approved', 'pending')
+			  AND (pc.valid_until IS NULL OR pc.valid_until > NOW())
+		`
+		args = []interface{}{user.ClientID, bankCode, consentType}
+	} else {
+		query = `
+			SELECT 
+				pc.id, pc.request_id, pc.consent_id, pc.user_id, pc.bank_id, 
+				b.code AS bank_code, pc.requesting_bank, pc.consent_type,
+				pc.amount, pc.currency, pc.debtor_account, pc.creditor_account,
+				pc.creditor_name, pc.reference, pc.max_uses, pc.max_amount_per_payment,
+				pc.max_total_amount, pc.allowed_creditor_accounts,
+				pc.vrp_max_individual_amount, pc.vrp_daily_limit, pc.vrp_monthly_limit,
+				pc.valid_from, pc.valid_until, pc.reason, pc.status, pc.expires_at,
+				pc.created_at, pc.updated_at
+			FROM payment_consents pc
+			LEFT JOIN banks b ON b.id = pc.bank_id
+			WHERE pc.user_id IN (SELECT id FROM users WHERE client_id=$1)
+			  AND b.code = $2
+			  AND pc.status IN ('approved', 'pending')
+			  AND (pc.valid_until IS NULL OR pc.valid_until > NOW())
+		`
+		args = []interface{}{user.ClientID, bankCode}
+	}
+
+	rows, err := r.DB.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var consents []PaymentConsent
+	for rows.Next() {
+		var c PaymentConsent
+		var consentID, requestingBank, currency, creditorAccount, creditorName, reference, reason sql.NullString
+		var amount, maxAmountPerPayment, maxTotalAmount, vrpMaxIndividualAmount, vrpDailyLimit, vrpMonthlyLimit sql.NullFloat64
+		var maxUses sql.NullInt64
+		var validFrom, validUntil, expiresAt sql.NullTime
+		var bankCode *string
+
+		err := rows.Scan(
+			&c.ID, &c.RequestID, &consentID, &c.UserID, &c.BankID, &bankCode, &requestingBank,
+			&c.ConsentType, &amount, &currency, &c.DebtorAccount, &creditorAccount,
+			&creditorName, &reference, &maxUses, &maxAmountPerPayment, &maxTotalAmount,
+			pq.Array(&c.AllowedCreditorAccounts),
+			&vrpMaxIndividualAmount, &vrpDailyLimit, &vrpMonthlyLimit,
+			&validFrom, &validUntil, &reason, &c.Status, &expiresAt,
+			&c.CreatedAt, &c.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if consentID.Valid {
+			c.ConsentID = &consentID.String
+		}
+		if requestingBank.Valid {
+			c.RequestingBank = &requestingBank.String
+		}
+		if currency.Valid {
+			c.Currency = &currency.String
+		}
+		if creditorAccount.Valid {
+			c.CreditorAccount = &creditorAccount.String
+		}
+		if creditorName.Valid {
+			c.CreditorName = &creditorName.String
+		}
+		if reference.Valid {
+			c.Reference = &reference.String
+		}
+		if reason.Valid {
+			c.Reason = &reason.String
+		}
+		if amount.Valid {
+			val := amount.Float64
+			c.Amount = &val
+		}
+		if maxUses.Valid {
+			val := int(maxUses.Int64)
+			c.MaxUses = &val
+		}
+		if maxAmountPerPayment.Valid {
+			val := maxAmountPerPayment.Float64
+			c.MaxAmountPerPayment = &val
+		}
+		if maxTotalAmount.Valid {
+			val := maxTotalAmount.Float64
+			c.MaxTotalAmount = &val
+		}
+		if vrpMaxIndividualAmount.Valid {
+			val := vrpMaxIndividualAmount.Float64
+			c.VRPMaxIndividualAmount = &val
+		}
+		if vrpDailyLimit.Valid {
+			val := vrpDailyLimit.Float64
+			c.VRPDailyLimit = &val
+		}
+		if vrpMonthlyLimit.Valid {
+			val := vrpMonthlyLimit.Float64
+			c.VRPMonthlyLimit = &val
+		}
+		if validFrom.Valid {
+			c.ValidFrom = &validFrom.Time
+		}
+		if validUntil.Valid {
+			c.ValidUntil = &validUntil.Time
+		}
+		if expiresAt.Valid {
+			c.ExpiresAt = &expiresAt.Time
+		}
+		c.BankCode = bankCode
+
+		consents = append(consents, c)
+	}
+
+	return consents, nil
+}
+
+// SavePaymentConsentByClientIdAndBank сохраняет согласие на платеж
+func (r *Repository) SavePaymentConsentByClientIdAndBank(
+	clientID, bankCode, requestID, consentID, requestingBank, consentType, currency, debtorAccount string,
+	creditorAccount, creditorName, reference *string,
+	amount, maxAmountPerPayment, maxTotalAmount, vrpMaxIndividualAmount, vrpDailyLimit, vrpMonthlyLimit *float64,
+	maxUses *int,
+	allowedCreditorAccounts []string,
+	validFrom, validUntil *time.Time,
+	reason *string,
+	status string,
+) error {
+	tx, err := r.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var bankID int
+	if err := tx.QueryRow(`SELECT id FROM banks WHERE code=$1`, bankCode).Scan(&bankID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("bank not found")
+		}
+		return err
+	}
+
+	// Получаем правильного пользователя для данного банка по client_id и bank_id
+	var userID int
+	if err := tx.QueryRow(`SELECT id FROM users WHERE client_id=$1 AND bank_id=$2`, clientID, bankID).Scan(&userID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return errors.New("user not found for this bank")
+		}
+		return err
+	}
+
+	var consentIDPtr interface{}
+	if consentID != "" {
+		consentIDPtr = consentID
+	} else {
+		consentIDPtr = nil
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO payment_consents (
+			request_id, consent_id, user_id, bank_id, requesting_bank, consent_type,
+			amount, currency, debtor_account, creditor_account, creditor_name, reference,
+			max_uses, max_amount_per_payment, max_total_amount, allowed_creditor_accounts,
+			vrp_max_individual_amount, vrp_daily_limit, vrp_monthly_limit,
+			valid_from, valid_until, reason, status
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+	`,
+		requestID, consentIDPtr, userID, bankID, requestingBank, consentType,
+		amount, currency, debtorAccount, creditorAccount, creditorName, reference,
+		maxUses, maxAmountPerPayment, maxTotalAmount, pq.Array(allowedCreditorAccounts),
+		vrpMaxIndividualAmount, vrpDailyLimit, vrpMonthlyLimit,
+		validFrom, validUntil, reason, status)
+
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// UpdatePaymentConsentStatusByRequestID обновляет статус согласия на платеж по request_id
+func (r *Repository) UpdatePaymentConsentStatusByRequestID(requestID, status string) error {
+	_, err := r.DB.Exec(`UPDATE payment_consents SET status=$1, updated_at=NOW() WHERE request_id=$2`, status, requestID)
+	return err
+}
+
+// UpdatePaymentConsentIDAndStatus обновляет consent_id и статус согласия на платеж
+func (r *Repository) UpdatePaymentConsentIDAndStatus(requestID, consentID, status string) error {
+	_, err := r.DB.Exec(`
+		UPDATE payment_consents 
+		SET consent_id=$1, status=$2, updated_at=NOW() 
+		WHERE request_id=$3
+	`, consentID, status, requestID)
+	return err
+}
+
+// GetPendingPaymentConsents получает все согласия на платежи со статусом pending
+func (r *Repository) GetPendingPaymentConsents() ([]PaymentConsent, error) {
+	rows, err := r.DB.Query(`
+		SELECT 
+			pc.id, pc.request_id, pc.consent_id, pc.user_id, pc.bank_id, 
+			b.code AS bank_code, pc.requesting_bank, pc.consent_type,
+			pc.amount, pc.currency, pc.debtor_account, pc.creditor_account,
+			pc.creditor_name, pc.reference, pc.max_uses, pc.max_amount_per_payment,
+			pc.max_total_amount, pc.allowed_creditor_accounts,
+			pc.vrp_max_individual_amount, pc.vrp_daily_limit, pc.vrp_monthly_limit,
+			pc.valid_from, pc.valid_until, pc.reason, pc.status, pc.expires_at,
+			pc.created_at, pc.updated_at
+		FROM payment_consents pc
+		LEFT JOIN banks b ON b.id = pc.bank_id
+		WHERE pc.status = 'pending' OR (pc.status = 'approved' AND (pc.consent_id IS NULL OR pc.consent_id = ''))
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var consents []PaymentConsent
+	for rows.Next() {
+		var c PaymentConsent
+		var consentID, requestingBank, currency, creditorAccount, creditorName, reference, reason sql.NullString
+		var amount, maxAmountPerPayment, maxTotalAmount, vrpMaxIndividualAmount, vrpDailyLimit, vrpMonthlyLimit sql.NullFloat64
+		var maxUses sql.NullInt64
+		var validFrom, validUntil, expiresAt sql.NullTime
+		var bankCode *string
+
+		err := rows.Scan(
+			&c.ID, &c.RequestID, &consentID, &c.UserID, &c.BankID, &bankCode, &requestingBank,
+			&c.ConsentType, &amount, &currency, &c.DebtorAccount, &creditorAccount,
+			&creditorName, &reference, &maxUses, &maxAmountPerPayment, &maxTotalAmount,
+			pq.Array(&c.AllowedCreditorAccounts),
+			&vrpMaxIndividualAmount, &vrpDailyLimit, &vrpMonthlyLimit,
+			&validFrom, &validUntil, &reason, &c.Status, &expiresAt,
+			&c.CreatedAt, &c.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if consentID.Valid {
+			c.ConsentID = &consentID.String
+		}
+		if requestingBank.Valid {
+			c.RequestingBank = &requestingBank.String
+		}
+		if currency.Valid {
+			c.Currency = &currency.String
+		}
+		if creditorAccount.Valid {
+			c.CreditorAccount = &creditorAccount.String
+		}
+		if creditorName.Valid {
+			c.CreditorName = &creditorName.String
+		}
+		if reference.Valid {
+			c.Reference = &reference.String
+		}
+		if reason.Valid {
+			c.Reason = &reason.String
+		}
+		if amount.Valid {
+			val := amount.Float64
+			c.Amount = &val
+		}
+		if maxUses.Valid {
+			val := int(maxUses.Int64)
+			c.MaxUses = &val
+		}
+		if maxAmountPerPayment.Valid {
+			val := maxAmountPerPayment.Float64
+			c.MaxAmountPerPayment = &val
+		}
+		if maxTotalAmount.Valid {
+			val := maxTotalAmount.Float64
+			c.MaxTotalAmount = &val
+		}
+		if vrpMaxIndividualAmount.Valid {
+			val := vrpMaxIndividualAmount.Float64
+			c.VRPMaxIndividualAmount = &val
+		}
+		if vrpDailyLimit.Valid {
+			val := vrpDailyLimit.Float64
+			c.VRPDailyLimit = &val
+		}
+		if vrpMonthlyLimit.Valid {
+			val := vrpMonthlyLimit.Float64
+			c.VRPMonthlyLimit = &val
+		}
+		if validFrom.Valid {
+			c.ValidFrom = &validFrom.Time
+		}
+		if validUntil.Valid {
+			c.ValidUntil = &validUntil.Time
+		}
+		if expiresAt.Valid {
+			c.ExpiresAt = &expiresAt.Time
+		}
+		c.BankCode = bankCode
+
+		consents = append(consents, c)
+	}
+
+	return consents, nil
+}

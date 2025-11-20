@@ -13,6 +13,7 @@ import (
 	"MoneyPilot/internal/auth"
 	bankapi "MoneyPilot/internal/bankapi"
 	"MoneyPilot/internal/cache"
+	"MoneyPilot/internal/paymentconsents"
 	"MoneyPilot/internal/poller"
 	"MoneyPilot/internal/productagreements"
 	"MoneyPilot/internal/productconsents"
@@ -56,6 +57,10 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 
 	productAgreementService := productagreements.NewService(repo, ts, bankapi.Banks, cacheService)
 	productAgreementHandler := productagreements.NewHandler(productAgreementService)
+
+	paymentConsentsService := paymentconsents.NewService(repo, ts, bankapi.Banks)
+	paymentConsentsHandler := paymentconsents.NewHandler(paymentConsentsService)
+
 	// --- WebSocket Hub ---
 	wsHub := websockets.NewHub()
 	r.GET("/ws", wsHub.HandleConnection)
@@ -67,10 +72,13 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	ProductRepo := poller.ProductConsentRepoAdapter{
 		Repo: repo,
 	}
+	PaymentRepo := poller.PaymentConsentRepoAdapter{
+		Repo: repo,
+	}
 
 	// --- Poller ---
 	pl := poller.NewPoller(
-		[]poller.ConsentRepo{&AccountRepo, &ProductRepo},
+		[]poller.ConsentRepo{&AccountRepo, &ProductRepo, &PaymentRepo},
 		ts,
 		bankapi.Banks,
 		wsHub, // уведомления через WebSocket
@@ -85,6 +93,9 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	secured.POST("/product-consents/request", productConsentsHandler.CreateConsent)
 	// secured.GET("/product-consents", productHandler.ListConsents) // опционально
 	// secured.GET("/product-consents/:consent_id", productHandler.GetConsentStatus) // опционально
+
+	// 👇 Добавляем маршруты для payment consents
+	secured.POST("/payment-consents/request", paymentConsentsHandler.CreatePaymentConsent)
 
 	// --- Account-related endpoints ---
 	secured.GET("/accounts", accountHandler.ListAccounts)
