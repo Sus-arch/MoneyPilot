@@ -1,8 +1,10 @@
 import pandas as pd
 from typing import List, Dict
 
+from core.can_afford.dynamic_threshold import calculate_dynamic_threshold
 
-def transactions_to_df(transactions: List[Dict]) -> pd.DataFrame:
+
+def process_transactions(transactions: List[Dict]) -> pd.DataFrame:
     """
     Преобразует список транзакций в DataFrame для Prophet.
 
@@ -11,7 +13,9 @@ def transactions_to_df(transactions: List[Dict]) -> pd.DataFrame:
     - ds: дата транзакции
     - y: сумма расхода (отрицательные значения для расходов, положительные для доходов)
     """
-    rows = []
+    variable_txs = []
+    fixed_txs = []
+
     print("Кол-во транзакций: ", len(transactions))
     print("Данные о расходах о месяцах: ", monthly_expenses(transactions))
 
@@ -20,45 +24,53 @@ def transactions_to_df(transactions: List[Dict]) -> pd.DataFrame:
 
     # Список слов-маркеров, которые нужно ИСКЛЮЧИТЬ из прогноза
     # Например: переводы людям, погашение кредитов (если это фиксированная сумма, ее проще прибавить вручную)
-    blacklist = ["Перевод клиенту", "Платеж по кредиту"]
+    # Ключевые слова для разделения расходов
+
+    FIXED_KEYWORDS = ["loan", "credit", "кредит", "ипотек", "mortgage", "rent", "аренд", "subscription", "подписк"]
+    BLACKLIST_KEYWORDS = ["перевод", "transfer"]
+    TRAVEL_KEYWORDS = ["путешествия", "travel", "hotel", "авиабилеты"]
+
+    all_debit_amounts = []
+    for t in transactions:
+        if t.get("creditDebitIndicator") == "Debit":
+            all_debit_amounts.append(abs(float(t["amount"]["amount"])))
+
+    anomaly_limit = calculate_dynamic_threshold(all_debit_amounts)
 
     for t in transactions:
-        # print(t)
         amount = float(t["amount"]["amount"])
-        description = t.get("transactionInformation", "")
+        desc = t.get("transactionInformation", "").lower()
 
         if t.get("creditDebitIndicator") != "Debit":
             continue
 
         # Пропускаем переводы и кредиты
-        # if any(word in description for word in blacklist):
-        #     continue
-
-        # Пропускаем аномально большие траты (например, > 30 000 за раз), если это не регулярная история
-        if abs(amount) > 30000:
+        if any(word in desc for word in BLACKLIST_KEYWORDS):
             continue
+
+        # Исключаем разовые гигантские траты (например > 300к), если это не кредит
+        # Это спасает от случайных покупок машины/квартиры, ломающих прогноз
 
         dt = t.get("valueDateTime") or t.get("bookingDateTime")
         dt = pd.to_datetime(dt).normalize()
 
-        rows.append({"ds": dt, "y": abs(amount)})
+        # Сортируем: Фиксированные vs Переменные
+        is_fixed = any(w in desc for w in FIXED_KEYWORDS)
+        is_travel = any(w in desc for w in TRAVEL_KEYWORDS)
 
-    df = pd.DataFrame(rows)
-    df.to_csv("/app/exports/output1.csv", index=False, encoding="utf-8")
+        if is_travel:
+            continue
 
-    df["ds"] = pd.to_datetime(df["ds"]).dt.tz_localize(None)
+        elif is_fixed:
+            fixed_txs.append({"month": dt.strftime("%Y-%m"), "amount": amount})
 
-    # агрегируем по дню
-    df = df.groupby("ds")["y"].sum().reset_index()
 
-    # Если в какой-то день не было трат, Prophet должен знать, что траты были 0, а не "нет данных"
-    full_range = pd.date_range(start=df['ds'].min(), end=df['ds'].max())
-    df = df.set_index('ds').reindex(full_range, fill_value=0).reset_index()
-    df.rename(columns={'index': 'ds'}, inplace=True)
+        else:
+            if amount <= anomaly_limit:
+                variable_txs.append({"ds": dt, "y": amount})
 
-    df.to_csv("/app/exports/output2.csv", index=False, encoding="utf-8")
 
-    return df
+    return variable_txs, fixed_txs
 
 
 def monthly_expenses(transactions: List[Dict]) -> Dict[str, float]:
