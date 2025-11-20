@@ -175,7 +175,7 @@ func (s *Service) FetchAllUserAccounts(userID int, bankCodes []string) ([]BankAc
 			}
 
 			// Дедупликация: используем bank_code + account_id как ключ
-			key := fmt.Sprintf("%s:%s", bankCode, a.AccountID)
+			key = fmt.Sprintf("%s:%s", bankCode, a.AccountID)
 			if _, exists := accountsMap[key]; !exists {
 				accountsMap[key] = acc
 			}
