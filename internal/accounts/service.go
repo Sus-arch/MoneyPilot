@@ -84,6 +84,8 @@ func (s *Service) FetchAllUserAccounts(userID int, bankCodes []string) ([]BankAc
 	}
 
 	var allAccounts []BankAccount
+	// карта для удаления дубликатов по паре bank+account_id
+	seen := make(map[string]struct{})
 	requestingBank := os.Getenv("LOGIN_HAC")
 	ctx := context.Background()
 
@@ -166,6 +168,10 @@ func (s *Service) FetchAllUserAccounts(userID int, bankCodes []string) ([]BankAc
 
 		// Парсим и сохраняем счета в БД с правильным userID для данного банка
 		for _, a := range parsed.Data.Account {
+			key := fmt.Sprintf("%s|%s", *consent.BankCode, a.AccountID)
+			if _, ok := seen[key]; ok {
+				continue
+			}
 			acc := BankAccount{
 				BankCode:       bankCode,
 				AccountID:      a.AccountID,
@@ -180,7 +186,7 @@ func (s *Service) FetchAllUserAccounts(userID int, bankCodes []string) ([]BankAc
 			}
 
 			// Дедупликация: используем bank_code + account_id как ключ
-			key := fmt.Sprintf("%s:%s", bankCode, a.AccountID)
+			key = fmt.Sprintf("%s:%s", bankCode, a.AccountID)
 			if _, exists := accountsMap[key]; !exists {
 				accountsMap[key] = acc
 			}
@@ -335,6 +341,48 @@ func (s *Service) proxyBankRequest(userID int, bankCode, path string) (map[strin
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
+	}
+	// Простая дедубликация для массива балансов: если в ответе есть data.balance — удалим точные дубликаты
+	if dataRaw, ok := result["data"]; ok {
+		if dataMap, ok := dataRaw.(map[string]interface{}); ok {
+			if balancesRaw, ok := dataMap["balance"]; ok {
+				if balancesSlice, ok := balancesRaw.([]interface{}); ok {
+					seenBal := make(map[string]struct{})
+					var deduped []interface{}
+					for _, item := range balancesSlice {
+						if itmMap, ok := item.(map[string]interface{}); ok {
+							// формируем ключ по accountId + amount.amount + amount.currency
+							key := ""
+							if accId, ok := itmMap["accountId"].(string); ok {
+								key = accId
+							}
+							if amountObj, ok := itmMap["amount"].(map[string]interface{}); ok {
+								if amt, ok := amountObj["amount"].(string); ok {
+									key += "|" + amt
+								}
+								if cur, ok := amountObj["currency"].(string); ok {
+									key += "|" + cur
+								}
+							}
+							if key == "" {
+								// fallback: marshal item
+								kb, _ := json.Marshal(itmMap)
+								key = string(kb)
+							}
+							if _, exists := seenBal[key]; !exists {
+								seenBal[key] = struct{}{}
+								deduped = append(deduped, item)
+							}
+						} else {
+							// Если не map, просто добавляем по-быстрому, уникальность не гарантируем
+							deduped = append(deduped, item)
+						}
+					}
+					dataMap["balance"] = deduped
+					result["data"] = dataMap
+				}
+			}
+		}
 	}
 	return result, nil
 }
