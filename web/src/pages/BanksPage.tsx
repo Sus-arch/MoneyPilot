@@ -286,9 +286,11 @@ export default function BanksPage() {
           const isApprovedStatus = msg.status === "approved";
           
           if (!matchesConsentId && !matchesRequestId) {
-            // Если это payment/product согласие и статус approved, принимаем его
-            if (isPaymentOrProduct && isApprovedStatus) {
-              console.log(`✅ Принимаем обновленный consent_id для ${activeConsentTypeRef.current} согласия: ${msg.consent_id} (был request_id: ${activeRequestIdRef.current})`);
+            // Для account consents: если activeConsentTypeRef не установлен (null), это account consent
+            const isAccountConsent = activeConsentTypeRef.current === null;
+            // Для payment/product согласий: если есть активное согласие этого типа и статус approved
+            if ((isPaymentOrProduct && isApprovedStatus) || (isAccountConsent && isApprovedStatus)) {
+              console.log(`✅ Принимаем обновленный consent_id для ${activeConsentTypeRef.current || 'account'} согласия: ${msg.consent_id} (был: ${activeConsentIdRef.current || activeRequestIdRef.current})`);
               // Продолжаем обработку
             } else {
               console.log(`⚠️ WebSocket message не соответствует активному согласию. Ожидали: ${activeConsentIdRef.current || activeRequestIdRef.current}, получили: ${msg.consent_id}`);

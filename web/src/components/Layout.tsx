@@ -11,6 +11,7 @@ export default function Layout() {
     { path: "/accounts", label: "Счета" },
     { path: "/transactions", label: "Транзакции" },
     { path: "/products", label: "Продукты" },
+    { path: "/payments", label: "Платежи" },
   ];
 
   return (
