@@ -1,17 +1,13 @@
 import { useEffect, useState, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
-import { post, get, clearCache } from "../api/client";
+import { get } from "../api/client";
 import {
   Banknote,
   CreditCard,
   Wallet,
-  CheckCircle,
-  XCircle,
   Loader2,
   Info,
   X,
-  ChevronDown,
-  ChevronUp,
 } from "lucide-react";
 
 const BANKS = [
@@ -55,87 +51,16 @@ export default function ProductsPage() {
   const { bankTokens } = useAuth();
   const connectedBanks = BANKS.filter((b) => bankTokens[b.id]);
 
-  const [selectedBank, setSelectedBank] = useState<string | null>(null);
-  const [read, setRead] = useState(true);
-  const [open, setOpen] = useState(false);
-  const [close, setClose] = useState(false);
-  const [types, setTypes] = useState<string[]>(["deposit"]);
-  const [maxAmount, setMaxAmount] = useState(1000000.0);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<null | any>(null);
-  const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<Record<string, Product[]>>({});
   const [loadingProducts, setLoadingProducts] = useState(false);
   const fetchingProductsRef = useRef(false);
   const lastBanksRef = useRef<string>("");
-
-  const [consentCollapsed, setConsentCollapsed] = useState(false);
 
   // состояние модального окна
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
   const [productDetails, setProductDetails] = useState<ProductDetails | null>(null);
-
-  const toggleType = (type: string) => {
-    setTypes((prev) =>
-      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
-    );
-  };
-
-  const handleSubmit = async (bankId: string) => {
-    const token = bankTokens[bankId];
-    if (!token) return;
-
-    setError(null);
-    setResult(null);
-
-    if (!read && !open && !close) {
-      setError("Выберите хотя бы одно действие для согласия.");
-      return;
-    }
-
-    if (types.length === 0) {
-      setError("Выберите хотя бы один тип продукта.");
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const body = {
-        read_product_agreements: read,
-        open_product_agreements: open,
-        close_product_agreements: close,
-        allowed_product_types: types,
-        max_amount: maxAmount,
-      };
-
-      const response = await post("/product-consents/request", body, {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        "X-Bank-Code": bankId,
-      });
-
-      setResult(response);
-
-      if (response.status === "approved") {
-        // Очищаем кэш продуктов при успешном согласии
-        clearCache("/products");
-        // Принудительно обновляем продукты, чтобы получить новые данные для всех банков
-        await fetchProducts(true);
-      }
-    } catch (err: any) {
-      console.error(err);
-      if (err.message?.includes("Rate limit")) {
-        setError("Слишком много запросов. Подождите немного.");
-      } else {
-        setError("Ошибка при отправке согласия. Попробуйте позже.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const fetchProducts = async (force = false) => {
     // Предотвращаем дублирующие запросы
@@ -230,142 +155,6 @@ export default function ProductsPage() {
         </p>
       ) : (
         <>
-          {/* ===== Выбор банка ===== */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-10">
-            {connectedBanks.map((bank) => (
-              <div
-                key={bank.id}
-                onClick={() => setSelectedBank(bank.id)}
-                className={`p-6 rounded-2xl border shadow-md flex flex-col items-center justify-between transition transform hover:-translate-y-1 hover:shadow-lg cursor-pointer ${
-                  selectedBank === bank.id
-                    ? "border-blue-500 bg-blue-50"
-                    : "border-gray-300 bg-white"
-                }`}
-              >
-                {bank.icon}
-                <h2 className="text-xl font-semibold mt-3">{bank.name}</h2>
-                {selectedBank === bank.id && (
-                  <CheckCircle className="w-5 h-5 text-blue-600 mt-2" />
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* ===== Настройка согласия (темный стиль + кастомные чекбоксы) ===== */}
-          {selectedBank && (
-            <div className="bg-gray-800 text-white rounded-2xl shadow-lg mb-10 overflow-hidden">
-              <div
-                className="flex items-center justify-between cursor-pointer px-6 py-4 bg-gray-900 hover:bg-gray-700 transition"
-                onClick={() => setConsentCollapsed(!consentCollapsed)}
-              >
-                <h2 className="text-2xl font-semibold">
-                  Настройка согласия для {selectedBank.toUpperCase()}
-                </h2>
-                {consentCollapsed ? (
-                  <ChevronDown className="w-6 h-6 text-white" />
-                ) : (
-                  <ChevronUp className="w-6 h-6 text-white" />
-                )}
-              </div>
-
-              {!consentCollapsed && (
-                <div className="p-8 space-y-6">
-                  {/* Тип согласий */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {[
-                      { label: "Чтение продуктов", value: read, setValue: setRead },
-                      { label: "Открытие продуктов", value: open, setValue: setOpen },
-                      { label: "Закрытие продуктов", value: close, setValue: setClose },
-                    ].map((item) => (
-                      <label
-                        key={item.label}
-                        className="flex items-center gap-2 cursor-pointer select-none"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={item.value}
-                          onChange={() => item.setValue(!item.value)}
-                          className="accent-blue-500 w-5 h-5 rounded transition"
-                        />
-                        <span>{item.label}</span>
-                      </label>
-                    ))}
-                  </div>
-
-                  {/* Типы продуктов */}
-                  <div>
-                    <h3 className="text-lg font-medium mb-2">Типы продуктов</h3>
-                    <div className="flex gap-4 flex-wrap">
-                      {Object.entries(PRODUCT_TYPES).map(([key, label]) => (
-                        <label
-                          key={key}
-                          className="flex items-center gap-2 cursor-pointer select-none"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={types.includes(key)}
-                            onChange={() => toggleType(key)}
-                            className="accent-blue-500 w-5 h-5 rounded transition"
-                          />
-                          <span>{label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Сумма */}
-                  <div>
-                    <label className="block text-sm font-medium text-white mb-1">
-                      Максимальная сумма продукта (₽)
-                    </label>
-                    <input
-                      type="number"
-                      value={maxAmount}
-                      onChange={(e) => setMaxAmount(parseFloat(e.target.value))}
-                      min={1}
-                      step={1000}
-                      className="w-60 border border-gray-600 rounded-lg px-3 py-2 bg-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <button
-                    onClick={() => handleSubmit(selectedBank)}
-                    disabled={loading}
-                    className="flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 transition disabled:bg-gray-400"
-                  >
-                    {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                    {loading ? "Отправка..." : "Отправить согласие"}
-                  </button>
-
-                  {/* Сообщение */}
-                  <div className="mt-4 space-y-3">
-                    {error && (
-                      <div className="flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">
-                        <XCircle className="w-5 h-5" />
-                        <span>{error}</span>
-                      </div>
-                    )}
-
-                    {result && result.status === "approved" && (
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-green-700 bg-green-50 border border-green-200 rounded-lg p-4 shadow-sm">
-                        <CheckCircle className="w-6 h-6 text-green-600" />
-                        <div>
-                          <p className="font-semibold">
-                            Согласие подтверждено для{" "}
-                            <span className="text-green-800">
-                              {result.bank?.toUpperCase()}
-                            </span>
-                          </p>
-                          <p className="text-sm text-gray-600">ID согласия: {result.consent_id}</p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* ===== Продукты ===== */}
           <div>
             <h2 className="text-2xl font-semibold text-blue-700 mb-6">

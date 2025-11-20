@@ -139,7 +139,7 @@ export async function post<T = any>(url: string, body?: any, headers: Headers = 
   }
   
   // Инвалидируем кэш для связанных GET запросов
-  if (url.includes("/account-consent") || url.includes("/product-consents")) {
+  if (url.includes("/account-consent") || url.includes("/product-consents") || url.includes("/payment-consents")) {
     clearCache();
   }
   

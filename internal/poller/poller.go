@@ -195,12 +195,19 @@ func (p *Poller) checkConsentStatus(repo ConsentRepo, c ConsentRecord) {
 		log.Printf("[poller] parsed account consentId=%s, status=%s", consentID, status)
 	}
 
-	if strings.EqualFold(status, "approved") ||
+	// Проверяем статусы: approved, authorized, authorised, active (для payment consents)
+	isApproved := strings.EqualFold(status, "approved") ||
 		strings.EqualFold(status, "authorized") ||
-		strings.EqualFold(status, "authorised") {
+		strings.EqualFold(status, "authorised") ||
+		(c.ConsentType == "payment" && strings.EqualFold(status, "active"))
 
-		log.Printf("[poller] consent %s approved ✅", c.ConsentID)
+	if isApproved {
+		log.Printf("[poller] consent %s approved ✅ (status: %s)", c.ConsentID, status)
 		repo.UpdateConsentStatus(c.ConsentID, "approved")
+		
+		// Определяем, какой ID отправлять через WebSocket
+		idToNotify := c.ConsentID
+		
 		// Для product-agreement и payment: если пришел consent_id из API (не пустой), обновляем в БД
 		// c.ConsentID в этом случае это request_id (из GetPendingConsents мы подставляем request_id если consent_id пустой)
 		if (c.ConsentType == "product-agreement" || c.ConsentType == "payment") && consentID != "" {
@@ -211,12 +218,17 @@ func (p *Poller) checkConsentStatus(repo ConsentRepo, c ConsentRecord) {
 				log.Printf("[poller] failed to update consent_id: %v", err)
 			} else {
 				log.Printf("[poller] consent_id updated successfully ✅")
+				// Используем обновленный consent_id для уведомления
+				idToNotify = consentID
 			}
 		} else if c.ConsentType == "account" && consentID != "" && consentID != c.ConsentID {
 			// Для account-consents: обновляем только если consent_id отличается
 			repo.UpdateConsentID(c.ConsentID, consentID, "approved")
+			idToNotify = consentID
 		}
-		p.notifySubscribers(c.ConsentID)
+		
+		// Отправляем уведомление с правильным ID (обновленным consent_id, если он был обновлен)
+		p.notifySubscribers(idToNotify)
 	}
 }
 
