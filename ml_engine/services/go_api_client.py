@@ -8,7 +8,10 @@ GO_API_BASE = "http://api:8080"
 class GoApiClient:
     def __init__(self, token: str):
         self.headers = {"Authorization": token}
-        self.client = httpx.AsyncClient()
+        self.client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=10.0)
+        )
+
 
     async def get_accounts(self):
         resp = await self.client.get(f"{GO_API_BASE}/api/accounts", headers=self.headers)
