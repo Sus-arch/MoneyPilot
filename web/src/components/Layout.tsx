@@ -5,7 +5,7 @@ import { Menu, X } from "lucide-react";
 
 export default function Layout() {
   const location = useLocation();
-  const { token, logout } = useAuth();
+  const { token, logout, username } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
@@ -48,6 +48,9 @@ export default function Layout() {
           <div className="flex items-center space-x-2 md:space-x-4">
             {token && (
               <>
+                <span className="hidden sm:block text-blue-100 text-sm md:text-base px-2">
+                  {username || "Пользователь"}
+                </span>
                 <button
                   onClick={logout}
                   className="hidden sm:block px-3 py-1 bg-red-500 rounded hover:bg-red-600 transition text-sm md:text-base"
@@ -75,6 +78,11 @@ export default function Layout() {
         {mobileMenuOpen && (
           <nav className="lg:hidden mt-4 pb-2 border-t border-blue-600 pt-4">
             <div className="flex flex-col space-y-2">
+              {token && (
+                <div className="px-4 py-2 text-blue-100 text-sm">
+                  {username || "Пользователь"}
+                </div>
+              )}
               {navItems.map((item) => (
                 <Link
                   key={item.path}

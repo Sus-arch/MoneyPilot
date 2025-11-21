@@ -28,7 +28,7 @@ def can_afford_rule(client_data: dict, purchase_amount: float) -> dict:
             "can_afford": False,
             "level": "CRITICAL",
             "message": "Недостаточно средств.",
-            "details": f"Ваш баланс: {total_balance:,.0f} ₽, а покупка: {purchase_amount:,.0f} ₽"
+            "details": f"Ваш баланс: {total_balance:.0f} ₽, а покупка: {purchase_amount:.0f} ₽"
         }
 
     # Проверка на Кассовый разрыв
@@ -44,9 +44,9 @@ def can_afford_rule(client_data: dict, purchase_amount: float) -> dict:
             "level": "WARNING",
             "message": "Рискованно. Остатка может не хватить на жизнь (согласно прогнозу AI).",
             "details": (
-                f"После покупки останется: {remaining_balance:,.0f} ₽.\n"
-                f"AI-прогноз ваших расходов: ~{forecasted_expenses:,.0f} ₽.\n"
-                f"Рекомендуемая подушка: {safety_margin:,.0f} ₽."
+                f"После покупки останется: {remaining_balance:.0f} ₽.\n"
+                f"AI-прогноз ваших расходов: ~{forecasted_expenses:.0f} ₽.\n"
+                f"Рекомендуемая подушка: {safety_margin:.0f} ₽."
             )
         }
     print("test5")
@@ -60,7 +60,7 @@ def can_afford_rule(client_data: dict, purchase_amount: float) -> dict:
                 "message": "Вы можете это позволить, но покупка " + (
                     "превышает ваш доход." if income_ratio > 1 else "очень крупная."),
                 "details": (
-                    f"Цена составляет {income_ratio:.0%} от вашего среднего дохода ({avg_monthly_income:,.0f} ₽).\n"
+                    f"Цена составляет {income_ratio:.0%} от вашего среднего дохода ({avg_monthly_income:.0f} ₽).\n"
                     "Убедитесь, что это не импульсивная трата."
                 )
             }
@@ -71,7 +71,7 @@ def can_afford_rule(client_data: dict, purchase_amount: float) -> dict:
         "level": "SUCCESS",
         "message": "Отлично! Вы можете смело совершить эту покупку.",
         "details": (
-            f"Свободных денег после покупки: {remaining_balance:,.0f} ₽.\n"
+            f"Свободных денег после покупки: {remaining_balance:.0f} ₽.\n"
             f"Этого хватит на {remaining_balance / (forecasted_expenses/30):.0f} дн. привычной жизни."
         )
     }

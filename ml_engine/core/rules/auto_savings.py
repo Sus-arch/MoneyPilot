@@ -42,7 +42,7 @@ def recommend_auto_savings(client_data: Dict) -> Optional[Dict]:
         return {
             "title": "Ваши деньги могут работать",
             "description": (
-                f"Вы тратите всего {spending_ratio * 100:.0f}% от дохода, и у вас остается свободных ~{monthly_surplus:,.0f} ₽ в месяц.\n"
+                f"Вы тратите всего {spending_ratio * 100:.0f}% от дохода, и у вас остается свободных ~{monthly_surplus:.0f} ₽ в месяц.\n"
                 f"Рекомендуем настроить автопополнение копилки на {recommended_save_amount:.0f} ₽ в месяц."
             ),
             "category": "savings",
