@@ -49,7 +49,7 @@ type ConsentTab = "payment" | "product";
 type PaymentConsentType = "single_use" | "multi_use" | "vrp";
 
 export default function BanksPage() {
-  const { currentBank, bankTokens, saveBankToken } = useAuth();
+  const { currentBank, bankTokens, saveBankToken, username } = useAuth();
   const [banks, setBanks] = useState<Bank[]>(
     BANKS.map((b) => ({ ...b, connected: !!bankTokens[b.id], status: "idle" }))
   );
@@ -148,7 +148,14 @@ export default function BanksPage() {
   }, [selectedBankForConsents]);
 
   // Подключение банка
-  const handleConnect = (bankId: string) => setShowLogin(bankId);
+  const handleConnect = (bankId: string) => {
+    // Автоматически подставляем username из основного банка
+    setCredentials({
+      email: username || "",
+      password: "",
+    });
+    setShowLogin(bankId);
+  };
 
   // Отправка логина
   const handleLoginSubmit = async (bankId: string) => {
