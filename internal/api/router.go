@@ -19,6 +19,7 @@ import (
 	"MoneyPilot/internal/productagreements"
 	"MoneyPilot/internal/productconsents"
 	"MoneyPilot/internal/storage"
+	"MoneyPilot/internal/subscriptions"
 	"MoneyPilot/internal/websockets"
 )
 
@@ -64,6 +65,8 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 
 	paymentsService := payments.NewService(repo, ts, bankapi.Banks)
 	paymentsHandler := payments.NewHandler(paymentsService)
+
+	subscriptionsHandler := subscriptions.NewHandler(repo)
 
 	// --- WebSocket Hub ---
 	wsHub := websockets.NewHub()
@@ -116,5 +119,10 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	secured.GET("/products/catalog", productAgreementHandler.GetProductsCatalog) // Каталог продуктов банков
 	secured.GET("/products/:agreement_id", productAgreementHandler.GetProductDetails)
 	secured.DELETE("/products/:agreement_id", productAgreementHandler.DeleteProduct)
+
+	// --- Subscription endpoints ---
+	secured.POST("/subscriptions", subscriptionsHandler.CreateSubscription)
+	secured.GET("/subscriptions/status", subscriptionsHandler.GetSubscriptionStatus)
+
 	return r
 }

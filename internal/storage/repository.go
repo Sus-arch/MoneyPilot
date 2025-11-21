@@ -998,3 +998,44 @@ func (r *Repository) GetPendingPaymentConsents() ([]PaymentConsent, error) {
 
 	return consents, nil
 }
+
+// CreateSubscription создает подписку для пользователя по client_id
+func (r *Repository) CreateSubscription(clientID string) error {
+	_, err := r.DB.Exec(`
+		INSERT INTO subscriptions (client_id, status)
+		VALUES ($1, 'active')
+		ON CONFLICT (client_id) 
+		DO UPDATE SET 
+			status = 'active',
+			updated_at = NOW()
+	`, clientID)
+	return err
+}
+
+// GetSubscriptionByClientID получает подписку пользователя по client_id
+func (r *Repository) GetSubscriptionByClientID(clientID string) (*Subscription, error) {
+	var sub Subscription
+	err := r.DB.QueryRow(`
+		SELECT id, client_id, status, created_at, updated_at
+		FROM subscriptions
+		WHERE client_id = $1
+	`, clientID).Scan(&sub.ID, &sub.ClientID, &sub.Status, &sub.CreatedAt, &sub.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &sub, nil
+}
+
+// HasActiveSubscription проверяет, есть ли у пользователя активная подписка по client_id
+func (r *Repository) HasActiveSubscription(clientID string) (bool, error) {
+	var count int
+	err := r.DB.QueryRow(`
+		SELECT COUNT(*) 
+		FROM subscriptions 
+		WHERE client_id = $1 AND status = 'active'
+	`, clientID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}

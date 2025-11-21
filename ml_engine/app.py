@@ -28,6 +28,8 @@ GO_API_BASE = "http://api:8080"
 async def analyze(authorization: str = Header(..., description="Bearer токен с фронтенда")):
     """Получает данные от Go API и возвращает рекомендации."""
     try:
+        client = GoApiClient(token=authorization)
+        
         async def fetch_account_data(account):
             account_id = account["account_id"]
             bank = account["bank"]
@@ -39,8 +41,6 @@ async def analyze(authorization: str = Header(..., description="Bearer токе�
                 date_to=date_to
             )
             return balances_, transactions_
-
-        client = GoApiClient(token=authorization)
 
         # --- Определяем диапазон последнего месяца ---
         today = datetime.utcnow()
@@ -66,6 +66,12 @@ async def analyze(authorization: str = Header(..., description="Bearer токе�
 
         # --- Генерация рекомендаций ---
         recommendations = generate_advice(client_data)
+        
+        # Проверка подписки для фильтрации stress_index
+        is_subscribed = await client.check_subscription()
+        if not is_subscribed:
+            # Фильтруем stress_index (category="risk") для неподписанных пользователей
+            recommendations = [rec for rec in recommendations if rec.get("category") != "risk"]
 
         return {
             "status": "success",
@@ -94,6 +100,14 @@ async def can_afford(
     """
     try:
         client = GoApiClient(token=authorization)
+        
+        # Проверка подписки
+        is_subscribed = await client.check_subscription()
+        if not is_subscribed:
+            return {
+                "status": "error",
+                "message": "Эта функция доступна только для подписчиков. Оформите подписку для доступа к функции can_afford."
+            }
 
         # Получаем свежие данные
         accounts = await client.get_accounts()

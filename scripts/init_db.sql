@@ -3,7 +3,7 @@
 -- ========================
 
 -- Очистка при пересоздании
-DROP TABLE IF EXISTS api_cache, product_agreements, products, payments, payment_consents, account_consents, transactions, accounts, users, banks, product_agreement_consents CASCADE;
+DROP TABLE IF EXISTS subscriptions, api_cache, product_agreements, products, payments, payment_consents, account_consents, transactions, accounts, users, banks, product_agreement_consents CASCADE;
 
 -- 🏦 Таблица банков
 CREATE TABLE banks (
@@ -168,6 +168,16 @@ CREATE TABLE product_agreement_consents (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- 💳 Подписки на сервис
+CREATE TABLE subscriptions (
+    id SERIAL PRIMARY KEY,
+    client_id VARCHAR(64) NOT NULL,
+    status VARCHAR(32) DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(client_id)
+);
+
 
 
 
@@ -197,6 +207,8 @@ CREATE INDEX idx_payments_bank_id ON payments(bank_id);
 CREATE INDEX idx_payments_status ON payments(status);
 CREATE INDEX idx_payments_payment_id ON payments(payment_id);
 CREATE INDEX idx_payments_payment_consent_id ON payments(payment_consent_id);
+CREATE INDEX idx_subscriptions_client_id ON subscriptions(client_id);
+CREATE INDEX idx_subscriptions_status ON subscriptions(status);
 
 
 -- Cоздание 10 пользователей
