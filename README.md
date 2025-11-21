@@ -130,11 +130,11 @@ http://localhost:5173
 
 ### Команда
 
-- **Андрей Харин** ([GitHub](https://github.com/Sus-arch)) – Frontend developer  
+- **Андрей Харин** ([GitHub](https://github.com/Sus-arch)) – Fullstack developer  
 
 - **Владислав Ямщиков** ([GitHub](https://github.com/Vladik1605)) – Backend developer (GO)  
 
-- **Алексей Кудрявцев** ([GitHub](https://github.com/Lookich39)) – Backend developer (Python) 
+- **Алексей Кудрявцев** ([GitHub](https://github.com/Lookich39)) – Backend developer (Python) / ML 
 
 - **Полина Минченко** ([GitHub](https://github.com/Appolia9)) – Backend developer (Python)
   
