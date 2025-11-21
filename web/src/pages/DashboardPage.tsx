@@ -284,30 +284,30 @@ export default function DashboardPage() {
 
   return (
     <motion.div
-      className="max-w-6xl mx-auto p-8"
+      className="max-w-6xl mx-auto p-4 md:p-6 lg:p-8"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.6 }}
     >
-      <h1 className="text-3xl font-bold text-center text-blue-700 mb-8">
+      <h1 className="text-2xl md:text-3xl font-bold text-center text-blue-700 mb-6 md:mb-8">
         Панель управления
       </h1>
 
       {/* Общий баланс и прогноз расходов */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
         <motion.div
-          className="bg-blue-100 rounded-2xl p-6 text-center shadow-lg"
+          className="bg-blue-100 rounded-2xl p-4 md:p-6 text-center shadow-lg flex flex-col justify-center min-h-[180px]"
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.5 }}
         >
-          <h2 className="text-xl font-semibold text-gray-700 mb-2">
+          <h2 className="text-lg md:text-xl font-semibold text-gray-700 mb-2">
             Общий баланс
           </h2>
           {loadingAccounts ? (
             <Loader2 className="w-6 h-6 mx-auto text-blue-700 animate-spin" />
           ) : (
-            <p className="text-4xl font-bold text-blue-800">
+            <p className="text-3xl md:text-4xl font-bold text-blue-800">
               {totalBalance.toLocaleString("ru-RU", {
                 style: "currency",
                 currency: "RUB",
@@ -317,12 +317,12 @@ export default function DashboardPage() {
         </motion.div>
 
         <motion.div
-          className="bg-gradient-to-br from-purple-100 to-pink-100 rounded-2xl p-6 shadow-lg"
+          className="bg-gradient-to-br from-purple-100 to-pink-100 rounded-2xl p-4 md:p-6 shadow-lg flex flex-col justify-center min-h-[180px]"
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.1 }}
         >
-          <h2 className="text-xl font-semibold text-gray-700 mb-2">
+          <h2 className="text-lg md:text-xl font-semibold text-gray-700 mb-2">
             Прогноз расходов
           </h2>
           {loadingForecast ? (
@@ -331,7 +331,7 @@ export default function DashboardPage() {
             <p className="text-red-500 text-sm">{errorForecast}</p>
           ) : spendingForecast ? (
             <div className="space-y-2">
-              <p className="text-3xl font-bold text-purple-800">
+              <p className="text-2xl md:text-3xl font-bold text-purple-800">
                 {spendingForecast.forecast.toLocaleString("ru-RU", {
                   style: "currency",
                   currency: "RUB",
@@ -370,15 +370,15 @@ export default function DashboardPage() {
         </motion.div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8">
         {/* Счета */}
         <motion.div
-          className="bg-white rounded-2xl p-6 shadow-md"
+          className="bg-white rounded-2xl p-4 md:p-6 shadow-md"
           initial={{ x: -50, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.1 }}
         >
-          <h2 className="text-2xl font-semibold text-gray-800 mb-4">
+          <h2 className="text-xl md:text-2xl font-semibold text-gray-800 mb-4">
             Ваши счета
           </h2>
 
@@ -421,12 +421,12 @@ export default function DashboardPage() {
 
         {/* Рекомендации + Возможность покупки */}
         <motion.div
-          className="bg-white rounded-2xl p-6 shadow-md space-y-6"
+          className="bg-white rounded-2xl p-4 md:p-6 shadow-md space-y-4 md:space-y-6"
           initial={{ x: 50, opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.2 }}
         >
-          <h2 className="text-2xl font-semibold text-gray-800 mb-4">
+          <h2 className="text-xl md:text-2xl font-semibold text-gray-800 mb-4">
             Персональные советы
           </h2>
 
