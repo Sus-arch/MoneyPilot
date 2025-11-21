@@ -39,9 +39,9 @@ export default function LoginPage() {
   ];
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-800 to-blue-500">
-      <div className="bg-white/10 backdrop-blur-lg shadow-lg rounded-2xl p-8 w-full max-w-md border border-white/20">
-        <h1 className="text-3xl font-bold text-center text-white mb-6">
+    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-800 to-blue-500 px-4 py-8">
+      <div className="bg-white/10 backdrop-blur-lg shadow-lg rounded-2xl p-6 md:p-8 w-full max-w-md border border-white/20">
+        <h1 className="text-2xl md:text-3xl font-bold text-center text-white mb-6">
           Авторизация в MoneyPilot
         </h1>
 

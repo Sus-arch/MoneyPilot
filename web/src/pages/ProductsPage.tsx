@@ -144,8 +144,8 @@ export default function ProductsPage() {
   }, [connectedBanks.length, bankTokens]);
 
   return (
-    <div className="max-w-5xl mx-auto mt-10 p-6">
-      <h1 className="text-3xl font-bold text-center text-blue-700 mb-8">
+    <div className="max-w-5xl mx-auto mt-4 md:mt-10 p-4 md:p-6">
+      <h1 className="text-2xl md:text-3xl font-bold text-center text-blue-700 mb-6 md:mb-8">
         Продукты по подключённым банкам
       </h1>
 
@@ -157,7 +157,7 @@ export default function ProductsPage() {
         <>
           {/* ===== Продукты ===== */}
           <div>
-            <h2 className="text-2xl font-semibold text-blue-700 mb-6">
+            <h2 className="text-xl md:text-2xl font-semibold text-blue-700 mb-4 md:mb-6">
               Список продуктов
             </h2>
 
@@ -165,8 +165,8 @@ export default function ProductsPage() {
               <p className="text-center text-gray-500">Загрузка продуктов...</p>
             ) : (
               connectedBanks.map((bank) => (
-                <div key={bank.id} className="mb-8">
-                  <h3 className="text-xl font-medium text-gray-800 mb-3">
+                <div key={bank.id} className="mb-6 md:mb-8">
+                  <h3 className="text-lg md:text-xl font-medium text-gray-800 mb-3">
                     {bank.name}
                   </h3>
 
@@ -210,14 +210,14 @@ export default function ProductsPage() {
 
       {/* ===== Модальное окно деталей ===== */}
       {modalOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-          onClick={() => setModalOpen(false)}
-        >
           <div
-            className="bg-white rounded-2xl shadow-lg max-w-md w-full p-6 relative transform transition-all scale-100"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+            onClick={() => setModalOpen(false)}
           >
+            <div
+              className="bg-white rounded-2xl shadow-lg max-w-md w-full p-4 md:p-6 relative transform transition-all scale-100 max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
             <button
               onClick={() => setModalOpen(false)}
               className="absolute top-3 right-3 text-gray-500 hover:text-gray-800"
@@ -225,7 +225,7 @@ export default function ProductsPage() {
               <X className="w-5 h-5" />
             </button>
 
-            <h3 className="text-2xl font-semibold text-blue-700 mb-4">
+            <h3 className="text-xl md:text-2xl font-semibold text-blue-700 mb-4">
               Детали продукта
             </h3>
 

@@ -552,20 +552,20 @@ export default function BanksPage() {
   const connectedBanks = banks.filter((b) => b.connected);
 
   return (
-    <div className="max-w-6xl mx-auto mt-10 p-6">
-      <h1 className="text-3xl font-bold text-center text-blue-700 mb-8">
+    <div className="max-w-6xl mx-auto mt-4 md:mt-10 p-4 md:p-6">
+      <h1 className="text-2xl md:text-3xl font-bold text-center text-blue-700 mb-6 md:mb-8">
         Управление банками и согласиями
       </h1>
 
       {/* Банки */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-10">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-10">
         {banks.map((bank) => {
           const Icon = BANKS.find((b) => b.id === bank.id)?.icon;
           const isPending = bank.status === "pending";
           return (
             <div
               key={bank.id}
-              className={`p-6 rounded-2xl border shadow-md flex flex-col items-center justify-between transition transform hover:-translate-y-1 hover:shadow-lg relative ${
+              className={`p-4 md:p-6 rounded-2xl border shadow-md flex flex-col items-center justify-between transition transform hover:-translate-y-1 hover:shadow-lg relative ${
                 bank.connected
                   ? "border-green-500 bg-green-50"
                   : isPending
@@ -611,8 +611,8 @@ export default function BanksPage() {
 
       {/* Модальное окно логина */}
       {showLogin && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-gray-800 p-6 rounded-xl shadow-lg w-96 text-white">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 p-4 md:p-6 rounded-xl shadow-lg w-full max-w-md text-white">
             <h2 className="text-xl font-bold mb-4">
               Вход в {showLogin.toUpperCase()}
             </h2>
@@ -662,7 +662,7 @@ export default function BanksPage() {
       {/* Согласия */}
       {connectedBanks.length > 0 && (
         <div className="mt-10">
-          <h2 className="text-2xl font-bold text-center text-blue-700 mb-6">
+          <h2 className="text-xl md:text-2xl font-bold text-center text-blue-700 mb-4 md:mb-6">
             Управление согласиями
           </h2>
 
@@ -697,28 +697,30 @@ export default function BanksPage() {
           {selectedBankForConsents && (
             <>
               {/* Табы */}
-              <div className="flex gap-2 mb-6 border-b">
+              <div className="flex flex-col sm:flex-row gap-2 mb-4 md:mb-6 border-b">
                 <button
                   onClick={() => setActiveTab("payment")}
-                  className={`px-6 py-3 font-medium transition ${
+                  className={`px-4 md:px-6 py-2 md:py-3 font-medium transition text-sm md:text-base ${
                     activeTab === "payment"
                       ? "border-b-2 border-blue-500 text-blue-600"
                       : "text-gray-500 hover:text-gray-700"
                   }`}
                 >
-                  <Send className="w-5 h-5 inline mr-2" />
-                  Согласия на переводы
+                  <Send className="w-4 h-4 md:w-5 md:h-5 inline mr-2" />
+                  <span className="hidden sm:inline">Согласия на переводы</span>
+                  <span className="sm:hidden">Переводы</span>
                 </button>
                 <button
                   onClick={() => setActiveTab("product")}
-                  className={`px-6 py-3 font-medium transition ${
+                  className={`px-4 md:px-6 py-2 md:py-3 font-medium transition text-sm md:text-base ${
                     activeTab === "product"
                       ? "border-b-2 border-blue-500 text-blue-600"
                       : "text-gray-500 hover:text-gray-700"
                   }`}
                 >
-                  <FileText className="w-5 h-5 inline mr-2" />
-                  Согласия на продукты
+                  <FileText className="w-4 h-4 md:w-5 md:h-5 inline mr-2" />
+                  <span className="hidden sm:inline">Согласия на продукты</span>
+                  <span className="sm:hidden">Продукты</span>
                 </button>
               </div>
 
@@ -734,8 +736,9 @@ export default function BanksPage() {
                       })
                     }
                   >
-                    <h3 className="text-xl font-semibold">
-                      Создание согласия на переводы для {selectedBankForConsents.toUpperCase()}
+                    <h3 className="text-lg md:text-xl font-semibold">
+                      <span className="hidden sm:inline">Создание согласия на переводы для </span>
+                      {selectedBankForConsents.toUpperCase()}
                     </h3>
                     {consentSectionsCollapsed.payment ? (
                       <ChevronDown className="w-6 h-6" />
@@ -745,16 +748,16 @@ export default function BanksPage() {
                   </div>
 
                   {!consentSectionsCollapsed.payment && (
-                    <div className="p-8 space-y-6">
+                    <div className="p-4 md:p-6 lg:p-8 space-y-4 md:space-y-6">
                       {/* Тип согласия */}
                       <div>
                         <label className="block text-sm font-medium mb-2">Тип согласия</label>
-                        <div className="flex gap-4">
+                        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
                           {(["single_use", "multi_use", "vrp"] as PaymentConsentType[]).map(
                             (type) => (
                               <label
                                 key={type}
-                                className="flex items-center gap-2 cursor-pointer"
+                                className="flex items-center gap-2 cursor-pointer whitespace-nowrap"
                               >
                                 <input
                                   type="radio"
@@ -762,9 +765,9 @@ export default function BanksPage() {
                                   value={type}
                                   checked={paymentConsentType === type}
                                   onChange={() => setPaymentConsentType(type)}
-                                  className="accent-blue-500"
+                                  className="accent-blue-500 flex-shrink-0"
                                 />
-                                <span>
+                                <span className="text-sm sm:text-base">
                                   {type === "single_use"
                                     ? "Одноразовый"
                                     : type === "multi_use"
@@ -1183,7 +1186,7 @@ export default function BanksPage() {
                   </div>
 
                   {!consentSectionsCollapsed.product && (
-                    <div className="p-8 space-y-6">
+                    <div className="p-4 md:p-6 lg:p-8 space-y-4 md:space-y-6">
                       {/* Тип согласий */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         {[
