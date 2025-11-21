@@ -155,3 +155,11 @@ type ProductAgreementConsent struct {
 	CreatedAt              time.Time
 	BankCode               *string
 }
+
+type Subscription struct {
+	ID        int       `db:"id" json:"id"`
+	ClientID  string    `db:"client_id" json:"client_id"`
+	Status    string    `db:"status" json:"status"`
+	CreatedAt time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt time.Time `db:"updated_at" json:"updated_at"`
+}

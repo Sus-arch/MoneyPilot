@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { useAuth } from "../context/AuthContext";
-import { get, clearCache } from "../api/client";
+import { get, post, clearCache } from "../api/client";
 import { CreditCard, Banknote, PiggyBank, Wallet, Landmark, Loader2 } from "lucide-react";
 
 interface Account {
@@ -72,14 +72,38 @@ export default function DashboardPage() {
   const [loadingForecast, setLoadingForecast] = useState(false);
   const [errorForecast, setErrorForecast] = useState("");
 
-  // Состояние подписки, сохраняем в localStorage
-  const [isSubscribed, setIsSubscribed] = useState<boolean>(() => {
-    return localStorage.getItem("isSubscribed") === "true";
-  });
+  // Состояние подписки
+  const [isSubscribed, setIsSubscribed] = useState<boolean>(false);
+  const [loadingSubscription, setLoadingSubscription] = useState(false);
+  const [loadingSubscriptionStatus, setLoadingSubscriptionStatus] = useState<boolean>(true);
 
-  const handleSubscribe = () => {
-    setIsSubscribed(true);
-    localStorage.setItem("isSubscribed", "true");
+  // Проверка статуса подписки
+  const checkSubscriptionStatus = async () => {
+    setLoadingSubscriptionStatus(true);
+    try {
+      const response = await get<{ is_subscribed: boolean }>("/subscriptions/status");
+      setIsSubscribed(response.is_subscribed || false);
+    } catch (err) {
+      console.error("Failed to check subscription status:", err);
+      setIsSubscribed(false);
+    } finally {
+      setLoadingSubscriptionStatus(false);
+    }
+  };
+
+  const handleSubscribe = async () => {
+    setLoadingSubscription(true);
+    try {
+      await post("/subscriptions");
+      setIsSubscribed(true);
+      // Обновляем рекомендации сразу после оформления подписки
+      await fetchRecommendations();
+    } catch (err: any) {
+      console.error("Failed to create subscription:", err);
+      alert("Не удалось оформить подписку. Попробуйте позже.");
+    } finally {
+      setLoadingSubscription(false);
+    }
   };
 
   const fetchingAccountsRef = useRef(false);
@@ -182,11 +206,18 @@ export default function DashboardPage() {
         if (response.status === 429) {
           throw new Error("Rate limit exceeded");
         }
-        throw new Error("Ошибка при загрузке рекомендаций");
+        // Если ошибка 200, но status: "error", обработаем ниже
+        if (response.status !== 200) {
+          throw new Error("Ошибка при загрузке рекомендаций");
+        }
       }
 
       const data = await response.json();
-      setRecommendations(data?.data || []);
+      if (data.status === "success") {
+        setRecommendations(data?.data || []);
+      } else {
+        setRecommendations([]);
+      }
     } catch (err: any) {
       console.error(err);
       if (err.message?.includes("Rate limit")) {
@@ -255,7 +286,10 @@ export default function DashboardPage() {
       if (!response.ok) throw new Error("Ошибка при проверке покупки");
 
       const data = await response.json();
-      if (data.status === "success" && data.data) {
+      if (data.status === "error" && data.message?.includes("подписчик")) {
+        setErrorAfford("Эта функция доступна только для подписчиков");
+        setAffordability(null);
+      } else if (data.status === "success" && data.data) {
         setAffordability(data.data);
       } else {
         throw new Error(data.message || "Ошибка при проверке покупки");
@@ -277,10 +311,14 @@ export default function DashboardPage() {
     fetchAccounts();
     fetchRecommendations();
     fetchSpendingForecast();
+    checkSubscriptionStatus();
   }, [currentBank]);
 
-  // Ограничение рекомендаций для обычных пользователей
-  const displayedRecommendations = isSubscribed ? recommendations : recommendations.slice(0, 2);
+  // Показываем все рекомендации (stress_index уже отфильтрован на бэкенде)
+  const displayedRecommendations = recommendations;
+
+  // Блокируем can_afford для неподписанных пользователей
+  const canUsePremiumFeatures = isSubscribed;
 
   return (
     <motion.div
@@ -466,30 +504,6 @@ export default function DashboardPage() {
                 </motion.div>
               ))}
 
-              {/* Сообщение о подписке */}
-              {!isSubscribed && (
-                <motion.div
-                  className="mt-4 p-4 rounded-xl border border-yellow-400 bg-yellow-50 flex flex-col items-center justify-center text-center space-y-3"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6 }}
-                >
-                  <div className="flex items-center gap-2 justify-center">
-                    <PiggyBank className="w-6 h-6 text-yellow-600" />
-                    <p className="font-semibold text-gray-800 text-lg">
-                      Оформите подписку, чтобы увидеть все рекомендации!
-                    </p>
-                  </div>
-                  <motion.button
-                    onClick={handleSubscribe}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 transition shadow-md"
-                  >
-                    Подписка 299₽/мес
-                  </motion.button>
-                </motion.div>
-              )}
             </div>
           )}
 
@@ -498,6 +512,30 @@ export default function DashboardPage() {
             <h3 className="text-lg font-semibold text-gray-800 mb-2">
               Проверка покупки
             </h3>
+            {!loadingSubscriptionStatus && !canUsePremiumFeatures && (
+              <div className="mb-3 p-3 rounded-lg border border-yellow-400 bg-yellow-50">
+                <p className="text-sm text-gray-700 mb-2">
+                  ⚠️ Эта функция доступна только для подписчиков
+                </p>
+                <motion.button
+                  onClick={handleSubscribe}
+                  disabled={loadingSubscription}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition shadow-md disabled:bg-blue-400 text-sm"
+                >
+                  {loadingSubscription ? "Оформление..." : "Оформить подписку 299₽/мес"}
+                </motion.button>
+              </div>
+            )}
+            {loadingSubscriptionStatus && (
+              <div className="mb-3 p-3 rounded-lg border border-gray-200 bg-gray-50">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 text-gray-600 animate-spin" />
+                  <p className="text-sm text-gray-600">Проверка статуса подписки...</p>
+                </div>
+              </div>
+            )}
             <div className="flex gap-2 items-center">
               <input
                 type="number"
@@ -505,12 +543,21 @@ export default function DashboardPage() {
                 value={purchaseAmount}
                 onChange={(e) => setPurchaseAmount(e.target.value)}
                 placeholder="Сумма покупки"
-                className="w-full bg-gray-100 border border-gray-300 rounded-lg px-3 py-2"
+                disabled={!canUsePremiumFeatures}
+                className={`w-full border rounded-lg px-3 py-2 ${
+                  !canUsePremiumFeatures
+                    ? "bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed"
+                    : "bg-gray-100 border-gray-300"
+                }`}
               />
               <button
                 onClick={checkAffordability}
-                disabled={loadingAfford || !purchaseAmount || parseFloat(purchaseAmount) <= 0}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition disabled:bg-blue-400"
+                disabled={!canUsePremiumFeatures || loadingAfford || !purchaseAmount || parseFloat(purchaseAmount) <= 0}
+                className={`px-4 py-2 rounded-lg transition ${
+                  !canUsePremiumFeatures
+                    ? "bg-gray-400 text-gray-600 cursor-not-allowed"
+                    : "bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-400"
+                }`}
               >
                 Проверить
               </button>
