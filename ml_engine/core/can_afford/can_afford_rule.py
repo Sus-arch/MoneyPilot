@@ -1,5 +1,5 @@
-from core.can_afford.analyze_income import analyze_income
-from core.can_afford.calculate_forecast import calculate_forecast
+from core.utils.analyze_income import analyze_income
+from core.utils.calculate_forecast import calculate_forecast
 
 
 def can_afford_rule(client_data: dict, purchase_amount: float) -> dict:
