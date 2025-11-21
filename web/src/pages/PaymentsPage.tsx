@@ -124,20 +124,14 @@ export default function PaymentsPage() {
     if (!token) return null;
 
     try {
-      // Используем введенный идентификатор счета напрямую
-      const debtorIdentification = debtorAccountId;
-      console.log(`Используем идентификатор для проверки согласия: ${debtorIdentification}`);
-
-      // Пытаемся создать согласие single_use - если оно уже существует, API вернет его
+      // Используем новый эндпоинт для проверки согласий
       const response = await post(
-        "/payment-consents/request",
+        "/payments/check-consents",
         {
-          consent_type: "single_use",
-          debtor_account: debtorIdentification,
+          debtor_account: debtorAccountId,
           creditor_account: creditorAccount,
           amount: amount,
           currency: paymentData.currency,
-          reference: paymentData.comment || undefined,
         },
         {
           Authorization: `Bearer ${token}`,
@@ -145,21 +139,12 @@ export default function PaymentsPage() {
         }
       );
 
-      // Если согласие уже существует и активно
-      if (response.message === "active consent exists" && response.status === "approved") {
-        return response.consent_id || response.request_id;
+      // Если есть подходящее согласие
+      if (response.has_consent && response.consent_id) {
+        return response.consent_id;
       }
 
-      // Если согласие создано и одобрено сразу
-      if (response.status === "approved" || response.auto_approved) {
-        return response.consent_id || response.request_id;
-      }
-
-      // Если требуется подтверждение - возвращаем null, чтобы показать модальное окно
-      if (response.status === "pending" || !response.auto_approved) {
-        return null;
-      }
-
+      // Если нет подходящего согласия - возвращаем null, чтобы показать модальное окно
       return null;
     } catch (err: any) {
       console.error("Ошибка проверки согласия:", err);
@@ -216,8 +201,10 @@ export default function PaymentsPage() {
 
         if (msg.status === "approved") {
           // Обновляем activeConsentIdRef на актуальный consent_id из WebSocket сообщения
+          // Это критически важно - activeConsentIdRef обновляется синхронно
           if (msg.consent_id) {
             activeConsentIdRef.current = msg.consent_id;
+            console.log(`✅ Обновлен activeConsentIdRef: ${activeConsentIdRef.current}`);
             // Очищаем request_id, так как теперь есть consent_id
             activeRequestIdRef.current = null;
           }
@@ -231,8 +218,9 @@ export default function PaymentsPage() {
             request_id: undefined
           });
           setConsentError(null);
-          // Закрываем модальное окно и продолжаем создание платежа
+          // Закрываем модальное окно
           setShowConsentModal(false);
+          // Создаем платеж сразу, используя activeConsentIdRef, который уже обновлен
           createPaymentAfterConsent();
           socket.close();
         }
@@ -293,12 +281,22 @@ export default function PaymentsPage() {
 
       setConsentResult(response);
 
-      if (response.status === "approved") {
-        // Согласие одобрено сразу - закрываем модальное окно и создаем платеж
+      if (response.status === "approved" || response.auto_approved) {
+        // Согласие одобрено сразу - сохраняем consent_id в activeConsentIdRef
+        if (response.consent_id) {
+          activeConsentIdRef.current = response.consent_id;
+        } else if (response.request_id) {
+          activeConsentIdRef.current = response.request_id;
+        }
+        // Закрываем модальное окно и создаем платеж
         setShowConsentModal(false);
+        // Создаем платеж сразу
         createPaymentAfterConsent();
       } else if (!response.auto_approved) {
-        // Требуется подтверждение - ждем через WebSocket
+        // Требуется подтверждение - сохраняем request_id и ждем через WebSocket
+        if (response.request_id) {
+          activeRequestIdRef.current = response.request_id;
+        }
         connectWebSocket(selectedBank, response.consent_id, response.request_id);
       }
     } catch (err: any) {
@@ -331,12 +329,11 @@ export default function PaymentsPage() {
         return;
       }
 
-      // Приоритетно используем consent_id из WebSocket сообщения (после подтверждения)
+      // Приоритетно используем activeConsentIdRef, так как он обновляется синхронно в WebSocket
       // Важно: после подтверждения через WebSocket request_id заменяется на consent_id
-      // Поэтому используем только consent_id, request_id недействителен после подтверждения
-      let consentId = consentResult?.consent_id || activeConsentIdRef.current;
+      let consentId = activeConsentIdRef.current;
       
-      // Если consent_id еще нет (согласие было одобрено сразу при создании), используем из результата
+      // Если activeConsentIdRef пуст, используем consentResult (для случая, когда согласие одобрено сразу)
       if (!consentId) {
         consentId = consentResult?.consent_id || consentResult?.request_id || activeRequestIdRef.current;
       }
@@ -347,7 +344,7 @@ export default function PaymentsPage() {
         return;
       }
 
-      console.log(`Используем consent_id для платежа: ${consentId} (из consentResult.consent_id: ${consentResult?.consent_id}, из activeConsentIdRef: ${activeConsentIdRef.current}, из consentResult.request_id: ${consentResult?.request_id})`);
+      console.log(`Используем consent_id для платежа: ${consentId} (из activeConsentIdRef: ${activeConsentIdRef.current}, из consentResult.consent_id: ${consentResult?.consent_id}, из consentResult.request_id: ${consentResult?.request_id})`);
 
       // Используем введенный идентификатор счета напрямую
       const debtorIdentification = paymentData.debtor_account;
@@ -392,17 +389,28 @@ export default function PaymentsPage() {
           description: response.data.description,
         });
 
+        // Очищаем состояние согласия после успешного платежа
+        console.log("✅ Платеж создан успешно, очищаем состояние согласия");
+        setConsentResult(null);
+        activeConsentIdRef.current = null;
+        activeRequestIdRef.current = null;
+        setShowConsentModal(false);
+
         // Запускаем проверку статуса платежа
         if (response.data.paymentId) {
           startPaymentStatusPolling(response.data.paymentId);
         }
       }
     } catch (err: any) {
-      console.error(err);
+      console.error("Ошибка при создании платежа после согласия:", err);
       if (err.message?.includes("Rate limit")) {
         setError("Слишком много запросов. Подождите немного.");
-      } else if (err.message?.includes("payment consent")) {
+      } else if (err.message?.includes("INVALID_CONSENT") || err.message?.includes("payment consent")) {
         setError("Требуется согласие на перевод. Создайте согласие сначала.");
+        // Очищаем недействительное согласие
+        activeConsentIdRef.current = null;
+        activeRequestIdRef.current = null;
+        setShowConsentModal(true);
       } else {
         setError("Ошибка при создании платежа. Попробуйте позже.");
       }
@@ -435,20 +443,29 @@ export default function PaymentsPage() {
       return;
     }
 
-    // Проверяем наличие согласия
-    const consentId = await checkPaymentConsent(selectedBank, paymentData.debtor_account, paymentData.creditor_account, amount);
-
-    if (consentId === null) {
-      // Согласия нет или требуется подтверждение - показываем модальное окно
-      setShowConsentModal(true);
-      return;
-    }
-
-    // Согласие есть - создаем платеж
     setError(null);
     setLoading(true);
 
     try {
+      // Сначала проверяем, есть ли уже сохраненное согласие в activeConsentIdRef
+      // (например, после подтверждения через WebSocket)
+      let consentId = activeConsentIdRef.current;
+      
+      // Если согласия нет в ref, проверяем через API
+      if (!consentId) {
+        consentId = await checkPaymentConsent(selectedBank, paymentData.debtor_account, paymentData.creditor_account, amount);
+      } else {
+        console.log(`Используем сохраненное согласие из activeConsentIdRef: ${consentId}`);
+      }
+
+      if (consentId === null) {
+        // Согласия нет - показываем модальное окно для создания согласия
+        setLoading(false);
+        setShowConsentModal(true);
+        return;
+      }
+
+      // Согласие есть - создаем платеж
       // Используем введенный идентификатор счета напрямую
       const debtorIdentification = paymentData.debtor_account;
       console.log(`Используем идентификатор для платежа: ${debtorIdentification}`);
@@ -492,6 +509,12 @@ export default function PaymentsPage() {
           description: response.data.description,
         });
 
+        // Очищаем состояние согласия после успешного платежа
+        setConsentResult(null);
+        activeConsentIdRef.current = null;
+        activeRequestIdRef.current = null;
+        setShowConsentModal(false);
+
         // Запускаем проверку статуса платежа
         if (response.data.paymentId) {
           startPaymentStatusPolling(response.data.paymentId);
@@ -501,7 +524,7 @@ export default function PaymentsPage() {
       console.error(err);
       if (err.message?.includes("Rate limit")) {
         setError("Слишком много запросов. Подождите немного.");
-      } else if (err.message?.includes("payment consent")) {
+      } else if (err.message?.includes("INVALID_CONSENT") || err.message?.includes("payment consent")) {
         // Если требуется согласие - показываем модальное окно
         setShowConsentModal(true);
       } else {
@@ -893,6 +916,11 @@ export default function PaymentsPage() {
                   setShowConsentModal(false);
                   setConsentResult(null);
                   setConsentError(null);
+                  // Очищаем refs при закрытии модального окна, если согласие не подтверждено
+                  if (!(consentResult && consentResult.status === "approved")) {
+                    activeConsentIdRef.current = null;
+                    activeRequestIdRef.current = null;
+                  }
                 }}
                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
                 disabled={consentLoading || (consentResult && consentResult.status === "pending")}
@@ -901,7 +929,7 @@ export default function PaymentsPage() {
               </button>
               <button
                 onClick={handleCreateConsent}
-                disabled={consentLoading || (consentResult && consentResult.status === "pending")}
+                disabled={consentLoading || (consentResult && consentResult.status === "pending") || (consentResult && consentResult.status === "approved")}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:bg-gray-400 flex items-center gap-2"
               >
                 {consentLoading && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -909,6 +937,8 @@ export default function PaymentsPage() {
                   ? "Создание..."
                   : consentResult && consentResult.status === "pending"
                   ? "Ожидание..."
+                  : consentResult && consentResult.status === "approved"
+                  ? "Согласие подтверждено"
                   : "Создать согласие"}
               </button>
             </div>

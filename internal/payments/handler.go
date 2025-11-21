@@ -17,3 +17,7 @@ func (h *Handler) CreatePayment(c *gin.Context) {
 func (h *Handler) GetPaymentStatus(c *gin.Context) {
 	h.service.GetPaymentStatus(c)
 }
+
+func (h *Handler) CheckPaymentConsents(c *gin.Context) {
+	h.service.CheckPaymentConsents(c)
+}

@@ -102,6 +102,7 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
 	secured.POST("/payment-consents/request", paymentConsentsHandler.CreatePaymentConsent)
 
 	// 👇 Добавляем маршруты для payments
+	secured.POST("/payments/check-consents", paymentsHandler.CheckPaymentConsents)
 	secured.POST("/payments", paymentsHandler.CreatePayment)
 	secured.GET("/payments/:payment_id", paymentsHandler.GetPaymentStatus)
 
