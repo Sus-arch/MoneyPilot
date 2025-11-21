@@ -45,6 +45,18 @@ const ACCOUNT_ICONS: Record<string, React.ReactNode> = {
   Deposit: <Wallet className="w-6 h-6 text-purple-600" />,
 };
 
+// Вспомогательная функция для определения URL ML Engine
+function getMLEngineUrl(): string {
+  const hostname = window.location.hostname;
+  const protocol = window.location.protocol;
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return "http://localhost:8000";
+  }
+  const url = `${protocol}//${hostname}:8000`;
+  console.log(`🔗 ML Engine URL: ${url}`);
+  return url;
+}
+
 export default function DashboardPage() {
   const { currentBank, bankTokens } = useAuth();
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -196,7 +208,8 @@ export default function DashboardPage() {
     setErrorRecs("");
 
     try {
-      const response = await fetch("http://localhost:8000/analyze", {
+      const mlEngineUrl = getMLEngineUrl();
+      const response = await fetch(`${mlEngineUrl}/analyze`, {
         headers: {
           Authorization: `Bearer ${bankTokens[currentBank]}`,
         },
@@ -240,7 +253,8 @@ export default function DashboardPage() {
     setSpendingForecast(null);
 
     try {
-      const response = await fetch("http://localhost:8000/predict_spending", {
+      const mlEngineUrl = getMLEngineUrl();
+      const response = await fetch(`${mlEngineUrl}/predict_spending`, {
         headers: {
           Authorization: `Bearer ${bankTokens[currentBank]}`,
         },
@@ -274,8 +288,9 @@ export default function DashboardPage() {
     setAffordability(null);
 
     try {
+      const mlEngineUrl = getMLEngineUrl();
       const response = await fetch(
-        `http://localhost:8000/can_afford?amount=${purchaseAmount}`,
+        `${mlEngineUrl}/can_afford?amount=${purchaseAmount}`,
         {
           headers: {
             Authorization: `Bearer ${bankTokens[currentBank]}`,

@@ -1,14 +1,53 @@
 // @ts-ignore - Vite types are available but TypeScript may not recognize them
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
+// Автоматическое определение API URL на основе текущего хоста
+function getApiUrl(): string {
+  // Если VITE_API_URL явно указан, используем его
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  
+  // Определяем API URL на основе текущего хоста
+  const hostname = window.location.hostname;
+  const protocol = window.location.protocol;
+  const currentPort = window.location.port;
+  
+  // Если это localhost или 127.0.0.1, используем localhost:8080
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return "http://localhost:8080";
+  }
+  
+  // Определяем порт для API
+  let apiPort = "8080";
+  if (currentPort) {
+    // Если фронтенд на порту 5173 (dev) или 3000, API на 8080
+    if (currentPort === "5173" || currentPort === "3000") {
+      apiPort = "8080";
+    } else if (currentPort === "80" || currentPort === "") {
+      // Если фронтенд на порту 80 или без порта, API на 8080
+      apiPort = "8080";
+    } else {
+      // В остальных случаях используем тот же порт
+      apiPort = currentPort;
+    }
+  }
+  
+  return `${protocol}//${hostname}:${apiPort}`;
+}
+
+const API_URL = getApiUrl();
+
 // @ts-ignore
 const WS_URL = import.meta.env.VITE_WS_URL || (() => {
   // Если WS_URL не указан, пытаемся вывести из API_URL
-  const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8080";
   // Заменяем http:// на ws:// и https:// на wss://, затем добавляем /ws
-  return apiUrl.replace(/^https?:\/\//, (match: string) => {
+  return API_URL.replace(/^https?:\/\//, (match: string) => {
     return match === "https://" ? "wss://" : "ws://";
   }) + "/ws";
 })();
+
+// Логируем для отладки
+console.log(`🔗 API URL: ${API_URL} (from hostname: ${typeof window !== 'undefined' ? window.location.hostname : 'N/A'})`);
+console.log(`🔗 WS URL: ${WS_URL}`);
 
 type Headers = Record<string, string>;
 
