@@ -2,6 +2,7 @@ package api
 
 import (
 	"database/sql"
+	"log"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -29,17 +30,79 @@ func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client, corsOrigins []st
 	// --- Настройка CORS ---
 	// Если corsOrigins пустой, используем значение по умолчанию
 	if len(corsOrigins) == 0 {
-		corsOrigins = []string{"http://localhost:5173"}
+		corsOrigins = []string{"http://localhost:5173", "http://147.45.219.12"}
 	}
 
-	r.Use(cors.New(cors.Config{
-		AllowOrigins:     corsOrigins,
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Bank-Code", "X-Payment-Consent-Id", "X-Fapi-Interaction-Id", "X-Fapi-Customer-Ip-Address"},
-		ExposeHeaders:    []string{"Content-Length"},
+	// Добавляем поддержку для localhost с разными портами и IP-адреса
+	defaultOrigins := []string{
+		"http://localhost:5173",
+		"http://localhost:3000",
+		"http://127.0.0.1:5173",
+		"http://127.0.0.1:3000",
+		"http://147.45.219.12",
+		"http://147.45.219.12:80",
+		"http://147.45.219.12:5173",
+		"http://147.45.219.12:3000",
+	}
+
+	// Объединяем переданные origins с дефолтными, убираем дубликаты
+	allOrigins := make(map[string]bool)
+	for _, origin := range corsOrigins {
+		if origin != "" {
+			allOrigins[origin] = true
+		}
+	}
+	for _, origin := range defaultOrigins {
+		allOrigins[origin] = true
+	}
+
+	uniqueOrigins := make([]string, 0, len(allOrigins))
+	for origin := range allOrigins {
+		uniqueOrigins = append(uniqueOrigins, origin)
+	}
+
+	// Логируем разрешенные origins для отладки
+	log.Printf("🌐 CORS configured with origins: %v", uniqueOrigins)
+
+	// Настройка CORS с поддержкой динамических origins для разработки
+	corsConfig := cors.Config{
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Bank-Code", "X-Payment-Consent-Id", "X-Fapi-Interaction-Id", "X-Fapi-Customer-Ip-Address", "Accept"},
+		ExposeHeaders:    []string{"Content-Length", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
-	}))
+	}
+
+	// Если origins пустой или содержит "*", разрешаем все origins (только для разработки!)
+	allowAll := false
+	for _, origin := range uniqueOrigins {
+		if origin == "*" {
+			allowAll = true
+			break
+		}
+	}
+
+	if allowAll || len(uniqueOrigins) == 0 {
+		// В режиме разработки разрешаем все origins
+		corsConfig.AllowOriginFunc = func(origin string) bool {
+			log.Printf("🔍 CORS request from origin: %s", origin)
+			return true
+		}
+		log.Printf("⚠️  CORS: Allowing all origins (development mode)")
+	} else {
+		corsConfig.AllowOrigins = uniqueOrigins
+	}
+
+	r.Use(cors.New(corsConfig))
+
+	// Middleware для логирования CORS запросов (только для отладки)
+	r.Use(func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if origin != "" {
+			log.Printf("📡 Request from origin: %s, method: %s, path: %s", origin, c.Request.Method, c.Request.URL.Path)
+		}
+		c.Next()
+	})
 
 	// --- Инициализация зависимостей ---
 	repo := storage.NewRepository(db)

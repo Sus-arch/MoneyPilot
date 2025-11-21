@@ -22,12 +22,18 @@ func Load() *Config {
 	_ = godotenv.Load(".env")
 
 	// Парсим CORS origins из переменной окружения (разделены запятой)
-	corsOriginsEnv := getEnv("CORS_ORIGINS", "http://localhost:5173")
+	// По умолчанию разрешаем localhost и IP-адрес для разработки
+	corsOriginsEnv := getEnv("CORS_ORIGINS", "http://localhost:5173,http://147.45.219.12")
 	corsOrigins := strings.Split(corsOriginsEnv, ",")
-	// Убираем пробелы вокруг каждого origin
-	for i, origin := range corsOrigins {
-		corsOrigins[i] = strings.TrimSpace(origin)
+	// Убираем пробелы вокруг каждого origin и фильтруем пустые
+	validOrigins := make([]string, 0, len(corsOrigins))
+	for _, origin := range corsOrigins {
+		trimmed := strings.TrimSpace(origin)
+		if trimmed != "" {
+			validOrigins = append(validOrigins, trimmed)
+		}
 	}
+	corsOrigins = validOrigins
 
 	cfg := &Config{
 		ServerPort:   getEnv("SERVER_PORT", "8080"),

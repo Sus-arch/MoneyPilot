@@ -15,15 +15,35 @@ from services.go_api_client import GoApiClient
 app = FastAPI(title="FinBalance ML Engine")
 
 # Получаем CORS origins из переменной окружения или используем значение по умолчанию
-cors_origins_env = os.getenv("CORS_ORIGINS", "http://localhost:5173")
-cors_origins = [origin.strip() for origin in cors_origins_env.split(",")]
+cors_origins_env = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://147.45.219.12")
+cors_origins = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
+
+# Добавляем поддержку для localhost с разными портами и IP-адреса
+default_origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+    "http://147.45.219.12",
+    "http://147.45.219.12:80",
+    "http://147.45.219.12:5173",
+    "http://147.45.219.12:3000",
+]
+
+# Объединяем переданные origins с дефолтными, убираем дубликаты
+all_origins = set(cors_origins)
+all_origins.update(default_origins)
+unique_origins = list(all_origins)
+
+print(f"🌐 ML Engine CORS configured with origins: {unique_origins}")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,  # адрес вашего фронта
+    allow_origins=unique_origins,  # адрес вашего фронта
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 GO_API_BASE = "http://api:8080"
