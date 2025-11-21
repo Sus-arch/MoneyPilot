@@ -1,12 +1,14 @@
 // @ts-ignore - Vite types are available but TypeScript may not recognize them
 // Автоматическое определение API URL на основе текущего хоста
 function getApiUrl(): string {
-  // Если VITE_API_URL явно указан, используем его
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL;
+  // Проверяем, что мы в браузере
+  if (typeof window === "undefined") {
+    // @ts-ignore - Vite env types
+    const envApiUrl = import.meta.env.VITE_API_URL;
+    return envApiUrl || "http://localhost:8080";
   }
   
-  // Определяем API URL на основе текущего хоста
+  // В браузере всегда определяем URL на основе текущего хоста
   const hostname = window.location.hostname;
   const protocol = window.location.protocol;
   const currentPort = window.location.port;
@@ -16,38 +18,58 @@ function getApiUrl(): string {
     return "http://localhost:8080";
   }
   
+  // Для всех остальных случаев (IP адреса, домены) используем тот же хост с портом 8080
   // Определяем порт для API
   let apiPort = "8080";
-  if (currentPort) {
-    // Если фронтенд на порту 5173 (dev) или 3000, API на 8080
-    if (currentPort === "5173" || currentPort === "3000") {
-      apiPort = "8080";
-    } else if (currentPort === "80" || currentPort === "") {
-      // Если фронтенд на порту 80 или без порта, API на 8080
-      apiPort = "8080";
-    } else {
-      // В остальных случаях используем тот же порт
-      apiPort = currentPort;
-    }
+  
+  // Если фронтенд на стандартном HTTP/HTTPS порту (80/443), API на 8080
+  if (currentPort === "" || currentPort === "80" || currentPort === "443") {
+    apiPort = "8080";
+  } else if (currentPort === "5173" || currentPort === "3000") {
+    // Если фронтенд на dev порту, API на 8080
+    apiPort = "8080";
+  } else {
+    // В остальных случаях API на 8080 (если фронтенд на другом порту)
+    apiPort = "8080";
+  }
+  
+  // Проверяем явно указанный VITE_API_URL только если он не localhost и мы не на localhost
+  // @ts-ignore - Vite env types
+  const envApiUrl = import.meta.env.VITE_API_URL;
+  if (envApiUrl && !envApiUrl.includes("localhost") && !envApiUrl.includes("127.0.0.1")) {
+    return envApiUrl;
   }
   
   return `${protocol}//${hostname}:${apiPort}`;
 }
 
+// Получаем API URL динамически
 const API_URL = getApiUrl();
 
-// @ts-ignore
-const WS_URL = import.meta.env.VITE_WS_URL || (() => {
-  // Если WS_URL не указан, пытаемся вывести из API_URL
+// Функция для получения WebSocket URL
+function getWebSocketUrlInternal(): string {
+  // Проверяем явно указанный VITE_WS_URL
+  // @ts-ignore - Vite env types
+  const envWsUrl = import.meta.env.VITE_WS_URL;
+  if (envWsUrl && !envWsUrl.includes("localhost")) {
+    return envWsUrl;
+  }
+  
+  // Если не указан, выводим из API_URL
+  const apiUrl = getApiUrl();
   // Заменяем http:// на ws:// и https:// на wss://, затем добавляем /ws
-  return API_URL.replace(/^https?:\/\//, (match: string) => {
+  return apiUrl.replace(/^https?:\/\//, (match: string) => {
     return match === "https://" ? "wss://" : "ws://";
   }) + "/ws";
-})();
+}
 
-// Логируем для отладки
-console.log(`🔗 API URL: ${API_URL} (from hostname: ${typeof window !== 'undefined' ? window.location.hostname : 'N/A'})`);
-console.log(`🔗 WS URL: ${WS_URL}`);
+const WS_URL = getWebSocketUrlInternal();
+
+// Логируем для отладки (выполняется только в браузере)
+if (typeof window !== "undefined") {
+  console.log(`🔗 API URL: ${API_URL} (from hostname: ${window.location.hostname}:${window.location.port})`);
+  console.log(`🔗 WS URL: ${WS_URL}`);
+}
 
 type Headers = Record<string, string>;
 
@@ -255,7 +277,12 @@ export function debouncedGet<T = any>(
   });
 }
 
+// Экспортируем функции для получения URL (динамически, на случай если нужно)
+export function getApiUrlDynamic(): string {
+  return getApiUrl();
+}
+
 // Экспортируем WebSocket URL для использования в других компонентах
 export function getWebSocketUrl(): string {
-  return WS_URL;
+  return getWebSocketUrlInternal();
 }
