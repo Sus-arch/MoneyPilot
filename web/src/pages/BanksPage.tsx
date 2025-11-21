@@ -628,10 +628,9 @@ export default function BanksPage() {
               type="text"
               placeholder="Логин"
               value={credentials.email}
-              onChange={(e) =>
-                setCredentials({ ...credentials, email: e.target.value })
-              }
-              className="border border-gray-600 w-full mb-3 px-3 py-2 rounded bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              readOnly
+              disabled
+              className="border border-gray-600 w-full mb-3 px-3 py-2 rounded bg-gray-700 text-white placeholder-gray-400 opacity-60 cursor-not-allowed"
             />
 
             <input
