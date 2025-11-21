@@ -42,7 +42,7 @@ def recommend_entertainment_control(client_data):
 
     if expense_ratio >= 0.08:
         recommendation_text = (
-            f"Ваши расходы на развлечения за последние 3 месяца составили {monthly_expense:,.0f} ₽ в месяц.\n"
+            f"Ваши расходы на развлечения за последние 3 месяца составили {monthly_expense:.0f} ₽ в месяц.\n"
             f"Это ~{expense_ratio*100:.0f}% от дохода — выше рекомендуемого уровня 5%.\n"
             f"Рекомендуется сократить расходы на развлечения для накоплений."
         )
