@@ -3,7 +3,7 @@
 -- ========================
 
 -- Очистка при пересоздании
-DROP TABLE IF EXISTS product_agreements, products, payments, payment_consents, account_consents, transactions, accounts, users, banks, product_agreement_consents CASCADE;
+DROP TABLE IF EXISTS subscriptions, api_cache, product_agreements, products, payments, payment_consents, account_consents, transactions, accounts, users, banks, product_agreement_consents CASCADE;
 
 -- 🏦 Таблица банков
 CREATE TABLE banks (
@@ -31,13 +31,20 @@ CREATE TABLE accounts (
     id SERIAL PRIMARY KEY,
     user_id INT REFERENCES users(id) ON DELETE CASCADE,
     bank_id INT REFERENCES banks(id) ON DELETE CASCADE,
-    account_number VARCHAR(64) UNIQUE NOT NULL,
+    account_number VARCHAR(64) NOT NULL,
     account_type VARCHAR(32) DEFAULT 'checking',
+    account_subtype VARCHAR(32),
     nickname VARCHAR(64),
     currency VARCHAR(8) DEFAULT 'RUB',
     balance NUMERIC(18,2) DEFAULT 0,
     status VARCHAR(32) DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT NOW()
+    owner_name VARCHAR(255),
+    opening_date DATE,
+    scheme_name VARCHAR(64),
+    identification VARCHAR(128),
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(user_id, bank_id, account_number)
 );
 
 -- 📈 Транзакции
@@ -68,28 +75,49 @@ CREATE TABLE account_consents (
 -- 💸 Платежные согласия
 CREATE TABLE payment_consents (
     id SERIAL PRIMARY KEY,
-    consent_id VARCHAR(64) UNIQUE NOT NULL,
-    user_id INT REFERENCES users(id),
-    bank_id INT REFERENCES banks(id),
-    consent_type VARCHAR(32),
+    request_id VARCHAR(64) UNIQUE NOT NULL,
+    consent_id VARCHAR(64),
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    bank_id INT REFERENCES banks(id) ON DELETE CASCADE,
+    requesting_bank VARCHAR(64),
+    consent_type VARCHAR(32) NOT NULL,
     amount NUMERIC(18,2),
+    currency VARCHAR(8),
     debtor_account VARCHAR(64),
     creditor_account VARCHAR(64),
+    creditor_name VARCHAR(255),
+    reference TEXT,
+    max_uses INT,
+    max_amount_per_payment NUMERIC(18,2),
+    max_total_amount NUMERIC(18,2),
+    allowed_creditor_accounts TEXT[], -- массив счетов получателей
+    vrp_max_individual_amount NUMERIC(18,2),
+    vrp_daily_limit NUMERIC(18,2),
+    vrp_monthly_limit NUMERIC(18,2),
+    valid_from TIMESTAMP,
     valid_until TIMESTAMP,
-    status VARCHAR(32) DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT NOW()
+    reason TEXT,
+    status VARCHAR(32) DEFAULT 'pending',
+    expires_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 
 -- 💰 Платежи
 CREATE TABLE payments (
     id SERIAL PRIMARY KEY,
     payment_id VARCHAR(64) UNIQUE NOT NULL,
-    user_id INT REFERENCES users(id),
-    debtor_account VARCHAR(64),
-    creditor_account VARCHAR(64),
-    amount NUMERIC(18,2),
-    currency VARCHAR(8),
+    user_id INT REFERENCES users(id) ON DELETE CASCADE,
+    bank_id INT REFERENCES banks(id) ON DELETE CASCADE,
+    debtor_account VARCHAR(64) NOT NULL,
+    creditor_account VARCHAR(64) NOT NULL,
+    creditor_bank_code VARCHAR(32), -- для межбанковских переводов (vbank, abank, sbank)
+    amount NUMERIC(18,2) NOT NULL,
+    currency VARCHAR(8) DEFAULT 'RUB',
+    comment TEXT,
+    description TEXT,
     status VARCHAR(32) DEFAULT 'pending',
+    payment_consent_id VARCHAR(64), -- связь с согласием на платеж
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -140,10 +168,113 @@ CREATE TABLE product_agreement_consents (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- 💳 Подписки на сервис
+CREATE TABLE subscriptions (
+    id SERIAL PRIMARY KEY,
+    client_id VARCHAR(64) NOT NULL,
+    status VARCHAR(32) DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(client_id)
+);
 
 
 
+
+
+-- 💾 Кэш для API ответов
+CREATE TABLE api_cache (
+    id SERIAL PRIMARY KEY,
+    cache_key VARCHAR(255) UNIQUE NOT NULL,
+    data JSONB NOT NULL,
+    updated_at TIMESTAMP DEFAULT NOW(),
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
 
 CREATE INDEX idx_users_bank_id ON users(bank_id);
 CREATE INDEX idx_accounts_user_id ON accounts(user_id);
 CREATE INDEX idx_transactions_account_id ON transactions(account_id);
+CREATE INDEX idx_api_cache_key ON api_cache(cache_key);
+CREATE INDEX idx_api_cache_expires_at ON api_cache(expires_at);
+CREATE INDEX idx_payment_consents_user_id ON payment_consents(user_id);
+CREATE INDEX idx_payment_consents_bank_id ON payment_consents(bank_id);
+CREATE INDEX idx_payment_consents_status ON payment_consents(status);
+CREATE INDEX idx_payment_consents_consent_id ON payment_consents(consent_id);
+CREATE INDEX idx_payment_consents_request_id ON payment_consents(request_id);
+CREATE INDEX idx_payments_user_id ON payments(user_id);
+CREATE INDEX idx_payments_bank_id ON payments(bank_id);
+CREATE INDEX idx_payments_status ON payments(status);
+CREATE INDEX idx_payments_payment_id ON payments(payment_id);
+CREATE INDEX idx_payments_payment_consent_id ON payments(payment_consent_id);
+CREATE INDEX idx_subscriptions_client_id ON subscriptions(client_id);
+CREATE INDEX idx_subscriptions_status ON subscriptions(status);
+
+
+-- Cоздание 10 пользователей
+
+-- Добавляем VBank и 10 пользователей team081-1...team081-10
+WITH upsert_bank AS (
+  INSERT INTO banks (code, name, api_base_url)
+  VALUES ('vbank', 'Virtual Bank', 'https://vbank.open.bankingapi.ru')
+  ON CONFLICT (code) DO UPDATE
+    SET name = EXCLUDED.name,
+        api_base_url = EXCLUDED.api_base_url
+  RETURNING id
+),
+bank AS (
+  SELECT id FROM upsert_bank
+  UNION ALL
+  SELECT id FROM banks WHERE code='vbank' LIMIT 1
+)
+INSERT INTO users (client_id, bank_id, password_hash)
+SELECT 'team081-' || n, bank.id, 'Nx1FIkTkSG2Sxk9R'
+FROM bank, generate_series(1, 10) AS gs(n)
+WHERE NOT EXISTS (
+  SELECT 1 FROM users u
+  WHERE u.client_id = 'team081-' || n AND u.bank_id = bank.id
+);
+
+-- Добавляем SBank и 10 пользователей team081-1...team081-10
+WITH upsert_bank AS (
+  INSERT INTO banks (code, name, api_base_url)
+  VALUES ('sbank', 'Smart Bank', 'https://sbank.open.bankingapi.ru')
+  ON CONFLICT (code) DO UPDATE
+    SET name = EXCLUDED.name,
+        api_base_url = EXCLUDED.api_base_url
+  RETURNING id
+),
+bank AS (
+  SELECT id FROM upsert_bank
+  UNION ALL
+  SELECT id FROM banks WHERE code='sbank' LIMIT 1
+)
+INSERT INTO users (client_id, bank_id, password_hash)
+SELECT 'team081-' || n, bank.id, 'Nx1FIkTkSG2Sxk9R'
+FROM bank, generate_series(1, 10) AS gs(n)
+WHERE NOT EXISTS (
+  SELECT 1 FROM users u
+  WHERE u.client_id = 'team081-' || n AND u.bank_id = bank.id
+);
+
+-- Добавляем ABank и 10 пользователей team081-1...team081-10
+WITH upsert_bank AS (
+  INSERT INTO banks (code, name, api_base_url)
+  VALUES ('abank', 'Awesome Bank', 'https://abank.open.bankingapi.ru')
+  ON CONFLICT (code) DO UPDATE
+    SET name = EXCLUDED.name,
+        api_base_url = EXCLUDED.api_base_url
+  RETURNING id
+),
+bank AS (
+  SELECT id FROM upsert_bank
+  UNION ALL
+  SELECT id FROM banks WHERE code='abank' LIMIT 1
+)
+INSERT INTO users (client_id, bank_id, password_hash)
+SELECT 'team081-' || n, bank.id, 'Nx1FIkTkSG2Sxk9R'
+FROM bank, generate_series(1, 10) AS gs(n)
+WHERE NOT EXISTS (
+  SELECT 1 FROM users u
+  WHERE u.client_id = 'team081-' || n AND u.bank_id = bank.id
+);

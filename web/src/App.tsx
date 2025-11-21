@@ -6,6 +6,7 @@ import AccountsPage from "./pages/AccountsPage";
 import BanksPage from "./pages/BanksPage";
 import ProductsPage from "./pages/ProductsPage";
 import TransactionsPage from "./pages/TransactionsPage";
+import PaymentsPage from "./pages/PaymentsPage";
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/transactions" element={<TransactionsPage />} />
         <Route path="/banks" element={<BanksPage />} />
         <Route path="/products" element={<ProductsPage />} />
+        <Route path="/payments" element={<PaymentsPage />} />
       </Route>
     </Routes>
   );

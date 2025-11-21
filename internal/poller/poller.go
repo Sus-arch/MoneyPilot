@@ -17,6 +17,7 @@ type ConsentRecord struct {
 	ConsentID      string
 	BankCode       string
 	UserID         int
+	ClientID       string // client_id для запросов к API
 	Status         string
 	ConsentType    string // "account" | "product"
 	RequestingBank string
@@ -110,7 +111,19 @@ func (p *Poller) checkConsentStatus(repo ConsentRepo, c ConsentRecord) {
 	}
 
 	// endpoint зависит от типа согласия
-	url := fmt.Sprintf("%s/%s-consents/%s", strings.TrimRight(client.BaseURL, "/"), c.ConsentType, c.ConsentID)
+	var url string
+	if c.ConsentType == "product-agreement" {
+		// Для product-agreement путь: /product-agreement-consents/consent/{consentID}?client_id={clientID}
+		url = fmt.Sprintf("%s/product-agreement-consents/consent/%s?client_id=%s",
+			strings.TrimRight(client.BaseURL, "/"), c.ConsentID, c.ClientID)
+	} else if c.ConsentType == "payment" {
+		// Для payment путь: /payment-consents/{consentID}?client_id={clientID}
+		url = fmt.Sprintf("%s/payment-consents/%s?client_id=%s",
+			strings.TrimRight(client.BaseURL, "/"), c.ConsentID, c.ClientID)
+	} else {
+		// Для account путь: /account-consents/{consentID}
+		url = fmt.Sprintf("%s/%s-consents/%s", strings.TrimRight(client.BaseURL, "/"), c.ConsentType, c.ConsentID)
+	}
 
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Authorization", "Bearer "+token.Token)
@@ -129,26 +142,93 @@ func (p *Poller) checkConsentStatus(repo ConsentRepo, c ConsentRecord) {
 		return
 	}
 
-	var wrapper struct {
-		Data struct {
-			ConsentID string `json:"consentId"`
-			Status    string `json:"status"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &wrapper); err != nil {
-		log.Printf("[poller] unmarshal failed: %v (body=%s)", err, string(body))
-		return
-	}
-	parsed := wrapper.Data
-	log.Printf("[poller] parsed consentId=%s, status=%s", parsed.ConsentID, parsed.Status)
-	if strings.EqualFold(parsed.Status, "approved") ||
-		strings.EqualFold(parsed.Status, "authorized") ||
-		strings.EqualFold(parsed.Status, "authorised") {
+	var status string
+	var consentID string
 
-		log.Printf("[poller] consent %s approved ✅", c.ConsentID)
+	if c.ConsentType == "payment" {
+		// Для payment ответ не обернут в {"data": {...}}, поля на верхнем уровне
+		var paymentResp struct {
+			RequestID string `json:"request_id"`
+			ConsentID string `json:"consent_id"`
+			Status    string `json:"status"`
+		}
+		if err := json.Unmarshal(body, &paymentResp); err != nil {
+			log.Printf("[poller] unmarshal failed for payment: %v (body=%s)", err, string(body))
+			return
+		}
+		status = paymentResp.Status
+		// Используем consent_id только если он пришел из API (не пустой)
+		consentID = paymentResp.ConsentID
+		log.Printf("[poller] parsed payment request_id=%s, consent_id=%s, status=%s",
+			paymentResp.RequestID, consentID, status)
+	} else if c.ConsentType == "product-agreement" {
+		// Для product-agreement ответ не обернут в {"data": {...}}, поля на верхнем уровне
+		var productResp struct {
+			RequestID string `json:"request_id"`
+			ConsentID string `json:"consent_id"`
+			Status    string `json:"status"`
+		}
+		if err := json.Unmarshal(body, &productResp); err != nil {
+			log.Printf("[poller] unmarshal failed for product-agreement: %v (body=%s)", err, string(body))
+			return
+		}
+		status = productResp.Status
+		// Используем consent_id только если он пришел из API (не пустой)
+		// Если consent_id пустой, оставляем пустым (не используем request_id)
+		consentID = productResp.ConsentID
+		log.Printf("[poller] parsed product-agreement request_id=%s, consent_id=%s, status=%s",
+			productResp.RequestID, consentID, status)
+	} else {
+		// Для account-consents ответ обернут в {"data": {...}}
+		var wrapper struct {
+			Data struct {
+				ConsentID string `json:"consentId"`
+				Status    string `json:"status"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &wrapper); err != nil {
+			log.Printf("[poller] unmarshal failed: %v (body=%s)", err, string(body))
+			return
+		}
+		status = wrapper.Data.Status
+		consentID = wrapper.Data.ConsentID
+		log.Printf("[poller] parsed account consentId=%s, status=%s", consentID, status)
+	}
+
+	// Проверяем статусы: approved, authorized, authorised, active (для payment consents)
+	isApproved := strings.EqualFold(status, "approved") ||
+		strings.EqualFold(status, "authorized") ||
+		strings.EqualFold(status, "authorised") ||
+		(c.ConsentType == "payment" && strings.EqualFold(status, "active"))
+
+	if isApproved {
+		log.Printf("[poller] consent %s approved ✅ (status: %s)", c.ConsentID, status)
 		repo.UpdateConsentStatus(c.ConsentID, "approved")
-		repo.UpdateConsentID(c.ConsentID, parsed.ConsentID, "approved")
-		p.notifySubscribers(c.ConsentID)
+		
+		// Определяем, какой ID отправлять через WebSocket
+		idToNotify := c.ConsentID
+		
+		// Для product-agreement и payment: если пришел consent_id из API (не пустой), обновляем в БД
+		// c.ConsentID в этом случае это request_id (из GetPendingConsents мы подставляем request_id если consent_id пустой)
+		if (c.ConsentType == "product-agreement" || c.ConsentType == "payment") && consentID != "" {
+			// Обновляем consent_id в БД по request_id
+			log.Printf("[poller] updating consent_id for %s: request_id=%s, new_consent_id=%s",
+				c.ConsentType, c.ConsentID, consentID)
+			if err := repo.UpdateConsentID(c.ConsentID, consentID, "approved"); err != nil {
+				log.Printf("[poller] failed to update consent_id: %v", err)
+			} else {
+				log.Printf("[poller] consent_id updated successfully ✅")
+				// Используем обновленный consent_id для уведомления
+				idToNotify = consentID
+			}
+		} else if c.ConsentType == "account" && consentID != "" && consentID != c.ConsentID {
+			// Для account-consents: обновляем только если consent_id отличается
+			repo.UpdateConsentID(c.ConsentID, consentID, "approved")
+			idToNotify = consentID
+		}
+		
+		// Отправляем уведомление с правильным ID (обновленным consent_id, если он был обновлен)
+		p.notifySubscribers(idToNotify)
 	}
 }
 

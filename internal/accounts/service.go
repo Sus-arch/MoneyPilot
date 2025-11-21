@@ -2,10 +2,14 @@ package accounts
 
 import (
 	"MoneyPilot/internal/bankapi"
+	"MoneyPilot/internal/cache"
 	"MoneyPilot/internal/storage"
+	"context"
+	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -13,18 +17,23 @@ import (
 )
 
 type Service struct {
-	repo     *storage.Repository
-	tokenSvc *bankapi.TokenService
-	banks    map[string]*bankapi.BankClient
-	http     *http.Client
+	repo         *storage.Repository
+	tokenSvc     *bankapi.TokenService
+	banks        map[string]*bankapi.BankClient
+	httpWrapper  *bankapi.ClientWrapper
+	cacheService *cache.CacheService
 }
 
-func NewService(repo *storage.Repository, ts *bankapi.TokenService, banks map[string]*bankapi.BankClient) *Service {
+func NewService(repo *storage.Repository, ts *bankapi.TokenService, banks map[string]*bankapi.BankClient, cacheService *cache.CacheService) *Service {
+	config := bankapi.DefaultConfig()
+	httpWrapper := bankapi.NewClientWrapper(cacheService, config)
+
 	return &Service{
-		repo:     repo,
-		tokenSvc: ts,
-		banks:    banks,
-		http:     &http.Client{Timeout: 15 * time.Second},
+		repo:         repo,
+		tokenSvc:     ts,
+		banks:        banks,
+		httpWrapper:  httpWrapper,
+		cacheService: cacheService,
 	}
 }
 
@@ -40,19 +49,74 @@ type BankAccount struct {
 }
 
 // FetchAllUserAccounts получает счета со всех банков, на которые есть согласие
-func (s *Service) FetchAllUserAccounts(userID int) ([]BankAccount, error) {
+// Если указан список bankCodes, возвращаются счета только для этих банков
+func (s *Service) FetchAllUserAccounts(userID int, bankCodes []string) ([]BankAccount, error) {
 	consents, err := s.repo.GetValidAccountConsentsByUserID(userID)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to load consents: %w", err)
 	}
 
-	var allAccounts []BankAccount
-	requestingBank := os.Getenv("LOGIN_HAC")
+	// Создаем map для быстрой проверки, какие банки нужно включить
+	allowedBanks := make(map[string]bool)
+	if len(bankCodes) > 0 {
+		for _, code := range bankCodes {
+			allowedBanks[strings.ToLower(strings.TrimSpace(code))] = true
+		}
+	}
 
+	// Группируем согласия по банку, используем только самое свежее согласие для каждого банка
+	// Также фильтруем только согласия, связанные с запрошенным userID (для безопасности)
+	consentsByBank := make(map[string]storage.AccountConsent)
 	for _, consent := range consents {
-		bankClient := s.banks[*consent.BankCode]
+		if consent.BankCode == nil {
+			continue
+		}
+		// Фильтруем только согласия, которые принадлежат запрошенному пользователю
+		// Используем consent.UserID напрямую, так как он уже правильно связан с банком
+		bankCode := *consent.BankCode
+		// Если указан список банков, фильтруем по нему
+		if len(allowedBanks) > 0 && !allowedBanks[strings.ToLower(bankCode)] {
+			continue
+		}
+		// Если согласия для этого банка еще нет, или текущее согласие новее - используем его
+		if existing, exists := consentsByBank[bankCode]; !exists || consent.CreatedAt.After(existing.CreatedAt) {
+			consentsByBank[bankCode] = consent
+		}
+	}
+
+	var allAccounts []BankAccount
+	// карта для удаления дубликатов по паре bank+account_id
+	seen := make(map[string]struct{})
+	requestingBank := os.Getenv("LOGIN_HAC")
+	ctx := context.Background()
+
+	// Используем map для дедупликации счетов по bank_code + account_id
+	accountsMap := make(map[string]BankAccount)
+
+	// Получаем client_id текущего авторизованного пользователя
+	currentUser, err := s.repo.GetUserByID(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load current user: %w", err)
+	}
+
+	for bankCode, consent := range consentsByBank {
+		bankClient := s.banks[bankCode]
 		if bankClient == nil {
+			continue
+		}
+
+		// Получаем bank_id для этого банка
+		bank, err := s.repo.GetBankByCode(bankCode)
+		if err != nil {
+			continue
+		}
+
+		// Получаем правильного пользователя для этого банка по client_id и bank_id
+		// Как в SaveProductAgreementConsent: SELECT id FROM users WHERE client_id=$1 AND bank_id=$2
+		bankUser, err := s.repo.GetUserByClientIDAndBankID(currentUser.ClientID, bank.ID)
+		if err != nil {
+			fmt.Printf("Failed to get user for client_id=%s, bank_id=%d (bank=%s): %v\n", currentUser.ClientID, bank.ID, bankCode, err)
 			continue
 		}
 
@@ -60,23 +124,28 @@ func (s *Service) FetchAllUserAccounts(userID int) ([]BankAccount, error) {
 		if err != nil {
 			continue
 		}
-		user, _ := s.repo.GetUserByID(consent.UserID)
-		url := strings.TrimRight(bankClient.BaseURL, "/") + "/accounts?client_id=" + user.ClientID
+
+		url := strings.TrimRight(bankClient.BaseURL, "/") + "/accounts?client_id=" + bankUser.ClientID
 		req, _ := http.NewRequest("GET", url, nil)
 		req.Header.Set("Authorization", "Bearer "+tokenObj.Token)
 		req.Header.Set("X-Requesting-Bank", requestingBank)
 		req.Header.Set("X-Consent-Id", consent.ConsentID)
 
-		resp, err := s.http.Do(req)
+		// Генерируем ключ кэша
+		cacheKey := fmt.Sprintf("accounts:%s:%s:%d", bankCode, bankUser.ClientID, bankUser.ID)
+
+		// Используем обертку с кэшированием, retry, rate limiting и circuit breaker
+		resp, err := s.httpWrapper.Do(ctx, bankCode, req, cacheKey, true)
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		defer resp.Body.Close()
 
 		if resp.StatusCode != 200 {
 			continue
 		}
+
+		body, _ := io.ReadAll(resp.Body)
 
 		// Структура OpenBanking
 		var parsed struct {
@@ -88,8 +157,11 @@ func (s *Service) FetchAllUserAccounts(userID int) ([]BankAccount, error) {
 					AccountType    string `json:"accountType"`
 					AccountSubType string `json:"accountSubType"`
 					Nickname       string `json:"nickname"`
+					OpeningDate    string `json:"openingDate"`
 					Account        []struct {
-						Name string `json:"name"`
+						SchemeName     string `json:"schemeName"`
+						Identification string `json:"identification"`
+						Name           string `json:"name"`
 					} `json:"account"`
 				} `json:"account"`
 			} `json:"data"`
@@ -99,9 +171,14 @@ func (s *Service) FetchAllUserAccounts(userID int) ([]BankAccount, error) {
 			continue
 		}
 
+		// Парсим и сохраняем счета в БД с правильным userID для данного банка
 		for _, a := range parsed.Data.Account {
+			key := fmt.Sprintf("%s|%s", *consent.BankCode, a.AccountID)
+			if _, ok := seen[key]; ok {
+				continue
+			}
 			acc := BankAccount{
-				BankCode:       *consent.BankCode,
+				BankCode:       bankCode,
 				AccountID:      a.AccountID,
 				AccountType:    a.AccountType,
 				AccountSubType: a.AccountSubType,
@@ -112,15 +189,145 @@ func (s *Service) FetchAllUserAccounts(userID int) ([]BankAccount, error) {
 			if len(a.Account) > 0 {
 				acc.Owner = a.Account[0].Name
 			}
-			allAccounts = append(allAccounts, acc)
+
+			// Дедупликация: используем bank_code + account_id как ключ
+			key = fmt.Sprintf("%s:%s", bankCode, a.AccountID)
+			if _, exists := accountsMap[key]; !exists {
+				accountsMap[key] = acc
+			}
+
+			// Сохраняем счет в БД с правильным userID для данного банка (bankUser.ID)
+			// Это гарантирует, что счет будет привязан к правильному пользователю и банку
+			accountType := a.AccountType
+			if accountType == "" {
+				accountType = "checking"
+			}
+
+			// Парсим openingDate
+			var openingDate *time.Time
+			if a.OpeningDate != "" {
+				if parsed, err := time.Parse("2006-01-02", a.OpeningDate); err == nil {
+					openingDate = &parsed
+				}
+			}
+
+			// Извлекаем schemeName, identification и ownerName из массива Account
+			var schemeName, identification, ownerName *string
+			if len(a.Account) > 0 {
+				acc := a.Account[0]
+				if acc.SchemeName != "" {
+					schemeName = &acc.SchemeName
+				}
+				if acc.Identification != "" {
+					identification = &acc.Identification
+				}
+				if acc.Name != "" {
+					ownerName = &acc.Name
+				}
+			}
+
+			accountSubType := a.AccountSubType
+			nickname := a.Nickname
+
+			if err := s.repo.UpsertAccount(
+				bankUser.ID, bank.ID, a.AccountID,
+				accountType, accountSubType, nickname, a.Currency, a.Status,
+				ownerName, schemeName, identification, openingDate,
+			); err != nil {
+				fmt.Printf("Failed to save account %s to DB for user %d (client_id=%s), bank %s: %v\n", a.AccountID, bankUser.ID, bankUser.ClientID, bankCode, err)
+			}
+
+			// Запрашиваем баланс для каждого счета и сохраняем его в БД
+			balanceReq, _ := http.NewRequest("GET", strings.TrimRight(bankClient.BaseURL, "/")+"/accounts/"+a.AccountID+"/balances?client_id="+bankUser.ClientID, nil)
+			balanceReq.Header.Set("Authorization", "Bearer "+tokenObj.Token)
+			balanceReq.Header.Set("X-Requesting-Bank", requestingBank)
+			balanceReq.Header.Set("X-Consent-Id", consent.ConsentID)
+
+			balanceCacheKey := fmt.Sprintf("balance:%s:%s:%s:%d", bankCode, bankUser.ClientID, a.AccountID, bankUser.ID)
+			balanceResp, err := s.httpWrapper.Do(ctx, bankCode, balanceReq, balanceCacheKey, true)
+			if err == nil && balanceResp != nil && balanceResp.StatusCode == 200 {
+				balanceBody, _ := io.ReadAll(balanceResp.Body)
+				balanceResp.Body.Close()
+
+				var balanceResult map[string]interface{}
+				if err := json.Unmarshal(balanceBody, &balanceResult); err == nil {
+					if data, ok := balanceResult["data"].(map[string]interface{}); ok {
+						if balanceArray, ok := data["balance"].([]interface{}); ok {
+							for _, balanceItem := range balanceArray {
+								if balanceMap, ok := balanceItem.(map[string]interface{}); ok {
+									// Ищем баланс типа InterimAvailable
+									if balanceType, ok := balanceMap["type"].(string); ok && balanceType == "InterimAvailable" {
+										if amountMap, ok := balanceMap["amount"].(map[string]interface{}); ok {
+											if amountStr, ok := amountMap["amount"].(string); ok {
+												var balance float64
+												if _, err := fmt.Sscanf(amountStr, "%f", &balance); err == nil {
+													// Обновляем баланс в БД с правильным userID для данного банка
+													if err := s.repo.UpdateAccountBalance(bankUser.ID, bank.ID, a.AccountID, balance); err != nil {
+														fmt.Printf("Failed to update balance for account %s (user %d, bank %s): %v\n", a.AccountID, bankUser.ID, bankCode, err)
+													}
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
 		}
+	}
+
+	// Преобразуем map в slice
+	for _, acc := range accountsMap {
+		allAccounts = append(allAccounts, acc)
 	}
 
 	return allAccounts, nil
 }
 
 func (s *Service) FetchAccountBalance(userID int, bankCode, accountID string) (map[string]interface{}, error) {
-	return s.proxyBankRequest(userID, bankCode, "/accounts/"+accountID+"/balances")
+	result, err := s.proxyBankRequest(userID, bankCode, "/accounts/"+accountID+"/balances")
+	if err != nil {
+		return nil, err
+	}
+
+	// Получаем правильного пользователя для этого банка (как в SaveProductAgreementConsent)
+	currentUser, err := s.repo.GetUserByID(userID)
+	if err == nil {
+		bank, err := s.repo.GetBankByCode(bankCode)
+		if err == nil {
+			// Получаем правильного пользователя для данного банка
+			bankUser, err := s.repo.GetUserByClientIDAndBankID(currentUser.ClientID, bank.ID)
+			if err == nil {
+				// Парсим и сохраняем балансы в БД
+				if data, ok := result["data"].(map[string]interface{}); ok {
+					if balanceArray, ok := data["balance"].([]interface{}); ok {
+						for _, balanceItem := range balanceArray {
+							if balanceMap, ok := balanceItem.(map[string]interface{}); ok {
+								// Ищем баланс типа InterimAvailable
+								if balanceType, ok := balanceMap["type"].(string); ok && balanceType == "InterimAvailable" {
+									if amountMap, ok := balanceMap["amount"].(map[string]interface{}); ok {
+										if amountStr, ok := amountMap["amount"].(string); ok {
+											var balance float64
+											if _, err := fmt.Sscanf(amountStr, "%f", &balance); err == nil {
+												// Обновляем баланс в БД с правильным userID для данного банка
+												if err := s.repo.UpdateAccountBalance(bankUser.ID, bank.ID, accountID, balance); err != nil {
+													fmt.Printf("Failed to update balance for account %s (user %d, bank %s): %v\n", accountID, bankUser.ID, bankCode, err)
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func (s *Service) FetchAccountTransactions(userID int, bankCode, accountID, from, to, page, limit string) (map[string]interface{}, error) {
@@ -134,11 +341,6 @@ func (s *Service) FetchAccountDetails(userID int, bankCode, accountID string) (m
 }
 
 func (s *Service) proxyBankRequest(userID int, bankCode, path string) (map[string]interface{}, error) {
-	// user, err := s.repo.GetUserByID(userID)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("user not found: %w", err)
-	// }
-
 	consents, err := s.repo.GetValidAccountConsentsByUserIDAndBank(userID, bankCode)
 	if err != nil || len(consents) == 0 {
 		return nil, fmt.Errorf("no valid consent found for bank %s", bankCode)
@@ -161,13 +363,148 @@ func (s *Service) proxyBankRequest(userID int, bankCode, path string) (map[strin
 	req.Header.Set("X-Requesting-Bank", os.Getenv("LOGIN_HAC"))
 	req.Header.Set("X-Consent-Id", consent.ConsentID)
 
-	resp, err := s.http.Do(req)
+	// Генерируем ключ кэша на основе пути и параметров
+	cacheKey := fmt.Sprintf("api:%s:%s:%x", bankCode, path, md5.Sum([]byte(path+consent.ConsentID)))
+
+	ctx := context.Background()
+	// Используем обертку с кэшированием, retry, rate limiting и circuit breaker
+	resp, err := s.httpWrapper.Do(ctx, bankCode, req, cacheKey, true)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	// Простая дедубликация для массива балансов: если в ответе есть data.balance — удалим точные дубликаты
+	if dataRaw, ok := result["data"]; ok {
+		if dataMap, ok := dataRaw.(map[string]interface{}); ok {
+			if balancesRaw, ok := dataMap["balance"]; ok {
+				if balancesSlice, ok := balancesRaw.([]interface{}); ok {
+					seenBal := make(map[string]struct{})
+					var deduped []interface{}
+					for _, item := range balancesSlice {
+						if itmMap, ok := item.(map[string]interface{}); ok {
+							// формируем ключ по accountId + amount.amount + amount.currency
+							key := ""
+							if accId, ok := itmMap["accountId"].(string); ok {
+								key = accId
+							}
+							if amountObj, ok := itmMap["amount"].(map[string]interface{}); ok {
+								if amt, ok := amountObj["amount"].(string); ok {
+									key += "|" + amt
+								}
+								if cur, ok := amountObj["currency"].(string); ok {
+									key += "|" + cur
+								}
+							}
+							if key == "" {
+								// fallback: marshal item
+								kb, _ := json.Marshal(itmMap)
+								key = string(kb)
+							}
+							if _, exists := seenBal[key]; !exists {
+								seenBal[key] = struct{}{}
+								deduped = append(deduped, item)
+							}
+						} else {
+							// Если не map, просто добавляем по-быстрому, уникальность не гарантируем
+							deduped = append(deduped, item)
+						}
+					}
+					dataMap["balance"] = deduped
+					result["data"] = dataMap
+				}
+			}
+		}
+	}
+	return result, nil
+}
+
+// GetUserAccountsFromDB получает все счета пользователя из БД
+func (s *Service) GetUserAccountsFromDB(userID int, bankCodes []string) (map[string]interface{}, error) {
+	// Получаем текущего пользователя для получения client_id
+	currentUser, err := s.repo.GetUserByID(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load current user: %w", err)
+	}
+
+	// Получаем все счета для всех пользователей с одинаковым client_id
+	// (у одного client_id могут быть разные user_id для разных банков)
+	allAccounts, err := s.repo.GetAccountsByClientID(currentUser.ClientID)
+	log.Println("allAccounts by client_id", currentUser.ClientID, ":", allAccounts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load accounts: %w", err)
+	}
+
+	// Если указаны bankCodes, фильтруем счета по банкам
+	var accounts []storage.Account
+	if len(bankCodes) > 0 {
+		// Создаем map для быстрой проверки bankCodes
+		bankIDMap := make(map[int]string) // bank_id -> bank_code
+
+		// Загружаем информацию о банках
+		for _, code := range bankCodes {
+			code = strings.ToLower(strings.TrimSpace(code))
+			bank, err := s.repo.GetBankByCode(code)
+			if err == nil {
+				bankIDMap[bank.ID] = code
+			}
+		}
+
+		// Фильтруем счета по банкам
+		for _, acc := range allAccounts {
+			if _, ok := bankIDMap[acc.BankID]; ok {
+				accounts = append(accounts, acc)
+			}
+		}
+	} else {
+		// Возвращаем все счета
+		accounts = allAccounts
+	}
+
+	// Преобразуем счета в старый формат с добавлением identification
+	var accountList []map[string]interface{}
+
+	for _, acc := range accounts {
+		// Получаем код банка по bank_id
+		bank, err := s.repo.GetBankByID(acc.BankID)
+		if err != nil {
+			// Если не можем найти банк, пропускаем счет
+			continue
+		}
+		bankCode := bank.Code
+
+		accountItem := map[string]interface{}{
+			"bank":         bankCode,
+			"account_id":   acc.AccountNumber,
+			"account_type": acc.AccountType,
+			"currency":     acc.Currency,
+			"status":       acc.Status,
+		}
+
+		if acc.AccountSubType != nil {
+			accountItem["account_subtype"] = *acc.AccountSubType
+		}
+		if acc.Nickname != nil {
+			accountItem["nickname"] = *acc.Nickname
+		}
+		if acc.Identification != nil {
+			accountItem["identification"] = *acc.Identification
+		}
+		if acc.OwnerName != nil {
+			accountItem["owner"] = *acc.OwnerName
+		}
+
+		accountList = append(accountList, accountItem)
+	}
+
+	result := map[string]interface{}{
+		"accounts": accountList,
+		"total":    len(accountList),
+	}
+
 	return result, nil
 }

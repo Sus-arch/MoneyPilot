@@ -7,6 +7,7 @@ interface AuthContextType {
   token: string | null;
   currentBank: string | null;
   bankTokens: Record<string, string>;
+  username: string | null;
   login: (email: string, password: string, bank: string) => Promise<"ok" | "waiting">;
   logout: () => void;
   saveBankToken: (bank: string, token: string) => void;
@@ -21,6 +22,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   );
   const [bankTokens, setBankTokens] = useState<Record<string, string>>(
     JSON.parse(localStorage.getItem("bankTokens") || "{}")
+  );
+  const [username, setUsername] = useState<string | null>(
+    localStorage.getItem("username")
   );
   const navigate = useNavigate();
 
@@ -42,8 +46,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     setToken(jwt);
     setCurrentBank(bank);
+    setUsername(email);
     localStorage.setItem("token", jwt);
     localStorage.setItem("currentBank", bank);
+    localStorage.setItem("username", email);
     saveBankToken(bank, jwt);
 
     // 2️⃣ Создание согласия
@@ -98,6 +104,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setToken(null);
     setCurrentBank(null);
     setBankTokens({});
+    setUsername(null);
     localStorage.clear();
     navigate("/login");
     if (wsRef.current) wsRef.current.close();
@@ -105,7 +112,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AuthContext.Provider
-      value={{ token, currentBank, bankTokens, login, logout, saveBankToken }}
+      value={{ token, currentBank, bankTokens, username, login, logout, saveBankToken }}
     >
       {children}
     </AuthContext.Provider>

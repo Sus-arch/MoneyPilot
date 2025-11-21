@@ -44,7 +44,7 @@ def recommend_smart_payment(client_data: dict) -> dict | None:
         "title": "Умный платёж",
         "description": (
             f"Рекомендуем оплатить с карты «{nickname}» — "
-            f"на ней самый высокий доступный остаток ({balance:,.2f} {currency})."
+            f"на ней самый высокий доступный остаток ({balance:.2f} {currency})."
         ),
         "category": "payment",
         "priority": "medium",

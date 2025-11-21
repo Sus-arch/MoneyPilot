@@ -18,6 +18,7 @@ interface Account {
   currency: string;
   bank: string;
   account_subtype: string;
+  identification?: string;
 }
 
 interface Balance {
@@ -79,8 +80,13 @@ export default function AccountsPage() {
     setError("");
 
     try {
+      // Получаем список всех подключенных банков
+      const connectedBanks = Object.keys(bankTokens).filter(bank => bankTokens[bank]);
+      const bankCodesHeader = connectedBanks.join(",");
+
       const res = await get("/accounts", {
         Authorization: `Bearer ${bankTokens[currentBank]}`,
+        "X-Bank-Code": bankCodesHeader,
       });
 
       const accountsData: Account[] = (res.accounts || []).map((a: any) => ({
@@ -90,6 +96,7 @@ export default function AccountsPage() {
         currency: a.currency,
         bank: a.bank,
         account_subtype: a.account_subtype,
+        identification: a.identification,
       }));
 
       setAccounts(accountsData);
@@ -176,11 +183,11 @@ export default function AccountsPage() {
 
   return (
     <motion.div
-      className="max-w-6xl mx-auto p-8"
+      className="max-w-6xl mx-auto p-4 md:p-6 lg:p-8"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
     >
-      <h1 className="text-3xl font-bold text-blue-700 mb-8 text-center">
+      <h1 className="text-2xl md:text-3xl font-bold text-blue-700 mb-6 md:mb-8 text-center">
         Ваши счета
       </h1>
 
@@ -194,10 +201,10 @@ export default function AccountsPage() {
             initial={{ y: 10, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
           >
-            <h2 className="text-2xl font-semibold mb-4 text-gray-800">
+            <h2 className="text-xl md:text-2xl font-semibold mb-4 text-gray-800">
               {bank.toUpperCase()}
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
               {groupedAccounts[bank].map((acc) => (
                 <motion.div
                   key={acc.account_id}
@@ -216,6 +223,11 @@ export default function AccountsPage() {
                       <p className="text-gray-500 text-sm">
                         {acc.status === "Enabled" ? "Активен" : "Не активен"} • {acc.currency}
                       </p>
+                      {acc.identification && (
+                        <p className="text-gray-400 text-xs mt-1 font-mono">
+                          ID: {acc.identification}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </motion.div>
@@ -234,7 +246,7 @@ export default function AccountsPage() {
             exit={{ opacity: 0 }}
           >
             <motion.div
-              className="bg-white rounded-2xl shadow-2xl w-11/12 max-w-lg p-6 relative"
+              className="bg-white rounded-2xl shadow-2xl w-11/12 max-w-lg p-4 md:p-6 relative max-h-[90vh] overflow-y-auto"
               initial={{ scale: 0.8, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
@@ -246,7 +258,7 @@ export default function AccountsPage() {
                 &times;
               </button>
 
-              <h2 className="text-2xl font-bold text-blue-700 mb-4">
+              <h2 className="text-xl md:text-2xl font-bold text-blue-700 mb-4">
                 {ACCOUNT_TYPE_TRANSLATIONS[selectedAccount.account_subtype] ||
                   selectedAccount.account_id}
               </h2>
@@ -271,6 +283,15 @@ export default function AccountsPage() {
                   <span className="font-semibold">Дата открытия:</span>{" "}
                   {selectedAccount.opening_date}
                 </p>
+                {(() => {
+                  const account = accounts.find(a => a.account_id === selectedAccount.account_id);
+                  return account?.identification && (
+                    <p>
+                      <span className="font-semibold">Идентификатор:</span>{" "}
+                      <span className="font-mono text-sm">{account.identification}</span>
+                    </p>
+                  );
+                })()}
 
                 {loadingDetails && (
                   <p className="text-gray-600 mt-3">Загрузка баланса...</p>

@@ -3,6 +3,7 @@ package accountconsents
 import (
 	"MoneyPilot/internal/bankapi"
 	"MoneyPilot/internal/storage"
+	"context"
 	"encoding/json"
 	"io"
 	"log"
@@ -18,15 +19,19 @@ type ConsentHandler struct {
 	Repo        *storage.Repository
 	TokenSvc    *bankapi.TokenService
 	BankClients map[string]*bankapi.BankClient
-	HTTPClient  *http.Client
+	HTTPWrapper *bankapi.ClientWrapper
 }
 
 func NewConsentHandler(repo *storage.Repository, ts *bankapi.TokenService, clients map[string]*bankapi.BankClient) *ConsentHandler {
+	// Для согласий кэширование не используется, но нужны retry, rate limiting и circuit breaker
+	config := bankapi.DefaultConfig()
+	httpWrapper := bankapi.NewClientWrapper(nil, config) // nil cacheService, так как кэш не нужен
+
 	return &ConsentHandler{
 		Repo:        repo,
 		TokenSvc:    ts,
 		BankClients: clients,
-		HTTPClient:  &http.Client{Timeout: 15 * time.Second},
+		HTTPWrapper: httpWrapper,
 	}
 }
 
@@ -80,22 +85,10 @@ func (h *ConsentHandler) CreateConsent(c *gin.Context) {
 		return
 	}
 	// 5) проверяем — нет ли уже действующего consent для этого user+bank
-	// предпочитаем метод по userID, если он есть; иначе используем email
-	var existing []storage.AccountConsent
-	if methodExists := true; methodExists {
-		// если у репозитория есть GetValidAccountConsentsByUserIDAndBank — вызываем его
-		if cons, err2 := h.Repo.GetValidAccountConsentsByEmailAndBank(user.ClientID, bankCode); err2 == nil && len(cons) > 0 {
-			existing = cons
-		}
-	}
-	// fallback: по email (если email непустой)
-	if len(existing) == 0 && user.Email != nil {
-		if cons, err2 := h.Repo.GetValidAccountConsentsByEmailAndBank(*user.Email, bankCode); err2 == nil && len(cons) > 0 {
-			existing = cons
-		}
-	}
-
-	if len(existing) > 0 {
+	// Сначала проверяем по userID (основной метод)
+	existing, err := h.Repo.GetValidAccountConsentsByUserIDAndBank(userID, bankCode)
+	if err == nil && len(existing) > 0 {
+		// Активное согласие уже существует - возвращаем его
 		c.JSON(http.StatusOK, gin.H{
 			"message":    "active consent exists",
 			"consent_id": existing[0].ConsentID,
@@ -103,6 +96,18 @@ func (h *ConsentHandler) CreateConsent(c *gin.Context) {
 			"expires_at": existing[0].ExpiresAt,
 		})
 		return
+	}
+	// Fallback: проверяем по email (если email непустой)
+	if len(existing) == 0 && user.Email != nil {
+		if cons, err2 := h.Repo.GetValidAccountConsentsByEmailAndBank(*user.Email, bankCode); err2 == nil && len(cons) > 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"message":    "active consent exists",
+				"consent_id": cons[0].ConsentID,
+				"status":     cons[0].Status,
+				"expires_at": cons[0].ExpiresAt,
+			})
+			return
+		}
 	}
 
 	// 6) Проверка TokenSvc
@@ -142,7 +147,8 @@ func (h *ConsentHandler) CreateConsent(c *gin.Context) {
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+bankToken)
 
-	resp, err := h.HTTPClient.Do(httpReq)
+	// Используем обертку с retry, rate limiting и circuit breaker (без кэширования)
+	resp, err := h.HTTPWrapper.Do(c.Request.Context(), bankCode, httpReq, "", false)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "bank request failed", "details": err.Error()})
 		return
@@ -286,14 +292,10 @@ func (h *ConsentHandler) PollPendingConsents() {
 		req.Header.Set("Authorization", "Bearer "+tokenObj.Token)
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("X-Fapi-Interaction-Id", "team081")
-		// include interaction id header if we have requesting bank info
-		// if c.RequestingBank != nil && *c.RequestingBank != "" {
-		// 	req.Header.Set("X-Fapi-Interaction-Id", *c.RequestingBank)
-		// } else {
-		// 	req.Header.Set("X-Fapi-Interaction-Id", "team081")
-		// }
 
-		resp, err := h.HTTPClient.Do(req)
+		// Используем обертку с retry, rate limiting и circuit breaker (без кэширования)
+		ctx := context.Background()
+		resp, err := h.HTTPWrapper.Do(ctx, *c.BankCode, req, "", false)
 		if err != nil {
 			log.Printf("poll: bank request failed for %s: %v", c.ConsentID, err)
 			continue

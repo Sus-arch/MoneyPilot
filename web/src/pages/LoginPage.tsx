@@ -12,6 +12,34 @@ export default function LoginPage() {
   const [open, setOpen] = useState(false);
   const [waiting, setWaiting] = useState(false);
 
+  // Функция для быстрого входа в случайный аккаунт
+  const handleQuickLogin = async () => {
+    // Генерируем случайное число от 1 до 10
+    const randomNumber = Math.floor(Math.random() * 10) + 1;
+    const randomUsername = `team081-${randomNumber}`;
+    const quickPassword = "Nx1FIkTkSG2Sxk9R";
+    const quickBank = "abank";
+
+    setEmail(randomUsername);
+    setPassword(quickPassword);
+    setBank(quickBank);
+    setLoading(true);
+    setError("");
+    setWaiting(false);
+
+    try {
+      const status = await login(randomUsername, quickPassword, quickBank);
+      if (status === "waiting") {
+        setWaiting(true);
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Ошибка авторизации. Проверьте данные.");
+    } finally {
+      if (!waiting) setLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -39,9 +67,9 @@ export default function LoginPage() {
   ];
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-800 to-blue-500">
-      <div className="bg-white/10 backdrop-blur-lg shadow-lg rounded-2xl p-8 w-full max-w-md border border-white/20">
-        <h1 className="text-3xl font-bold text-center text-white mb-6">
+    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-800 to-blue-500 px-4 py-8">
+      <div className="bg-white/10 backdrop-blur-lg shadow-lg rounded-2xl p-6 md:p-8 w-full max-w-md border border-white/20">
+        <h1 className="text-2xl md:text-3xl font-bold text-center text-white mb-6">
           Авторизация в MoneyPilot
         </h1>
 
@@ -139,6 +167,22 @@ export default function LoginPage() {
               : "Войти"}
           </button>
         </form>
+
+        <div className="mt-4 pt-4 border-t border-white/20">
+          <button
+            type="button"
+            onClick={handleQuickLogin}
+            disabled={loading || waiting}
+            className="w-full bg-green-600 text-white font-semibold py-2 rounded-lg hover:bg-green-700 transition disabled:bg-green-400"
+          >
+            {loading || waiting
+              ? "Вход..."
+              : "🚀 Войти в случайный аккаунт (ABank)"}
+          </button>
+          <p className="text-blue-100 text-xs text-center mt-2">
+            Случайный аккаунт: team081-1...team081-10
+          </p>
+        </div>
       </div>
     </div>
   );

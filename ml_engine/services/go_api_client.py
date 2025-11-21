@@ -8,7 +8,10 @@ GO_API_BASE = "http://api:8080"
 class GoApiClient:
     def __init__(self, token: str):
         self.headers = {"Authorization": token}
-        self.client = httpx.AsyncClient()
+        self.client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=10.0)
+        )
+
 
     async def get_accounts(self):
         resp = await self.client.get(f"{GO_API_BASE}/api/accounts", headers=self.headers)
@@ -59,3 +62,16 @@ class GoApiClient:
         )
         resp.raise_for_status()
         return resp.json().get("data", {}).get("transaction", [])
+
+    async def check_subscription(self) -> bool:
+        """Проверяет, есть ли у пользователя активная подписка."""
+        try:
+            resp = await self.client.get(
+                f"{GO_API_BASE}/api/subscriptions/status",
+                headers=self.headers
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("is_subscribed", False)
+        except Exception:
+            return False

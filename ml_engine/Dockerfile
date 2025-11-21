@@ -23,10 +23,14 @@ COPY --from=builder /install /usr/local
 
 COPY . .
 
+# Создаем директорию для экспорта с правильными правами
+RUN mkdir -p /tmp/exports && chown -R app:app /tmp/exports
+
 EXPOSE 8000
 
 USER app
 
 ENV PYTHONUNBUFFERED=1
+ENV MPLCONFIGDIR=/tmp/matplotlib
 
 ENTRYPOINT ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

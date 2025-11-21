@@ -2,12 +2,13 @@ import asyncio
 from fastapi import FastAPI, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
 from core.advisor import generate_advice
+
+from core.utils.calculate_forecast import calculate_forecast
 from core.can_afford.can_afford_rule import can_afford_rule
-from models.spending_predictor import SpendingPredictor
 from services.go_api_client import GoApiClient
 
 app = FastAPI(title="FinBalance ML Engine")
@@ -27,6 +28,8 @@ GO_API_BASE = "http://api:8080"
 async def analyze(authorization: str = Header(..., description="Bearer токен с фронтенда")):
     """Получает данные от Go API и возвращает рекомендации."""
     try:
+        client = GoApiClient(token=authorization)
+        
         async def fetch_account_data(account):
             account_id = account["account_id"]
             bank = account["bank"]
@@ -38,8 +41,6 @@ async def analyze(authorization: str = Header(..., description="Bearer токе�
                 date_to=date_to
             )
             return balances_, transactions_
-
-        client = GoApiClient(token=authorization)
 
         # --- Определяем диапазон последнего месяца ---
         today = datetime.utcnow()
@@ -65,6 +66,12 @@ async def analyze(authorization: str = Header(..., description="Bearer токе�
 
         # --- Генерация рекомендаций ---
         recommendations = generate_advice(client_data)
+        
+        # Проверка подписки для фильтрации stress_index
+        is_subscribed = await client.check_subscription()
+        if not is_subscribed:
+            # Фильтруем stress_index (category="risk") для неподписанных пользователей
+            recommendations = [rec for rec in recommendations if rec.get("category") != "risk"]
 
         return {
             "status": "success",
@@ -85,14 +92,22 @@ async def analyze(authorization: str = Header(..., description="Bearer токе�
 
 @app.get("/can_afford")
 async def can_afford(
-    amount: float = Query(..., description="Сумма предполагаемой покупки"),
-    authorization: str = Header(..., description="Bearer токен пользователя")
+        amount: float = Query(..., description="Сумма предполагаемой покупки"),
+        authorization: str = Header(..., description="Bearer токен пользователя")
 ):
     """
     Проверяет, может ли пользователь позволить себе покупку на указанную сумму.
     """
     try:
         client = GoApiClient(token=authorization)
+        
+        # Проверка подписки
+        is_subscribed = await client.check_subscription()
+        if not is_subscribed:
+            return {
+                "status": "error",
+                "message": "Эта функция доступна только для подписчиков. Оформите подписку для доступа к функции can_afford."
+            }
 
         # Получаем свежие данные
         accounts = await client.get_accounts()
@@ -114,57 +129,38 @@ async def can_afford(
             transactions.extend(t)
 
         client_data = {"accounts": accounts, "balances": balances, "transactions": transactions}
-
+        print("test0")
         recommendation = can_afford_rule(client_data, amount)
         return {"status": "success", "data": recommendation}
 
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+
 @app.get("/predict_spending")
-def predict_spending(authorization: str = Header(...)):
+async def predict_spending(authorization: str = Header(...)):
     """Прогнозирует расходы на следующий месяц."""
     try:
         client = GoApiClient(token=authorization)
-        predictor = SpendingPredictor()
-
-        # Получаем список счетов
-        accounts = client.get_accounts()
-        all_tx = []
-
-        # Дата диапазон: последние 6 месяцев
-        date_to = datetime(2025, 10, 20)
-        print(date_to)
-        date_from = date_to - relativedelta(months=6)
-        print("Flag")
+        accounts = await client.get_accounts()
+        transactions = []
         for acc in accounts:
-            print(f"📘 Запрашиваю транзакции для account_id={acc['account_id']}, bank={acc['bank']}", flush=True)
-            tx = client.get_transactions(
+            t = await client.get_transactions(
                 account_id=acc["account_id"],
                 bank_code=acc["bank"],
-                date_from=date_from.strftime("%Y-%m-%d"),
-                date_to=date_to.strftime("%Y-%m-%d"),
-                limit=200
             )
-            print(f"🔹 Получено {len(tx)} транзакций", flush=True)
-
-            all_tx.extend(tx)
-
-        if not all_tx:
-            return {"status": "error", "message": "Нет данных для прогнозирования"}
-
-        # Подготовка и прогноз
-        df = predictor.prepare_monthly_data(all_tx)
-        predictor.train(df)
-        next_month_forecast = predictor.predict_next_month(df)
-
-        if next_month_forecast is None:
-            return {"status": "error", "message": "Недостаточно данных"}
-
+            transactions.extend(t)
+        print("test0")
+        forecast_variable, forecast_fixed = calculate_forecast(transactions)
+        total = forecast_variable + forecast_fixed
+        print("test9")
         return {
             "status": "success",
-            "forecast": round(next_month_forecast, 2),
-            "currency": "RUB",
+            "forecast": round(total, 2),
+            "details": {
+                "variable_spending": round(forecast_variable, 2),
+                "fixed_obligations": round(forecast_fixed, 2)
+            },
             "next_month": (datetime.utcnow() + relativedelta(months=1)).strftime("%B %Y")
         }
 
