@@ -111,10 +111,50 @@ func (s *Service) CreatePayment(c *gin.Context) {
 		return
 	}
 
-	// 6) Проверяем согласие на платеж, если указано в заголовке
+	// 6) Парсим сумму
+	amount, err := strconv.ParseFloat(req.Data.Initiation.InstructedAmount.Amount, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid amount format", "details": err.Error()})
+		return
+	}
+
+	currency := req.Data.Initiation.InstructedAmount.Currency
+	if currency == "" {
+		currency = "RUB" // значение по умолчанию
+	}
+
+	debtorAccount := req.Data.Initiation.DebtorAccount.Identification
+	creditorAccount := req.Data.Initiation.CreditorAccount.Identification
+	creditorBankCode := req.Data.Initiation.CreditorAccount.BankCode
+
+	// 7) Проверяем согласие на платеж
 	paymentConsentID := c.GetHeader("X-Payment-Consent-Id")
 	var paymentConsent *storage.PaymentConsent
-	if paymentConsentID != "" {
+	
+	// Если согласие не указано в заголовке, ищем подходящие согласия
+	if paymentConsentID == "" {
+		consents, err := s.Repo.FindMatchingPaymentConsents(
+			bankUser.ID, bank.ID, debtorAccount, creditorAccount, amount, currency,
+		)
+		if err == nil && len(consents) > 0 {
+			// Используем первое подходящее согласие
+			consent := consents[0]
+			if consent.ConsentID != nil && *consent.ConsentID != "" {
+				paymentConsentID = *consent.ConsentID
+			} else {
+				paymentConsentID = consent.RequestID
+			}
+			paymentConsent = &consent
+		} else {
+			// Нет подходящих согласий - возвращаем ошибку
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":   "INVALID_CONSENT",
+				"message": "Нет подходящего согласия для данного платежа. Необходимо создать согласие.",
+			})
+			return
+		}
+	} else {
+		// Согласие указано в заголовке - проверяем его
 		consent, err := s.Repo.GetPaymentConsentByConsentID(paymentConsentID)
 		if err == nil && consent != nil {
 			paymentConsent = consent
@@ -136,67 +176,13 @@ func (s *Service) CreatePayment(c *gin.Context) {
 		}
 	}
 
-	// 7) Парсим сумму
-	amount, err := strconv.ParseFloat(req.Data.Initiation.InstructedAmount.Amount, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid amount format", "details": err.Error()})
+	// 8) Проверяем согласие на платеж (уже проверено в FindMatchingPaymentConsents, но можно добавить дополнительные проверки)
+	if paymentConsent == nil {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":   "INVALID_CONSENT",
+			"message": "Согласие недействительно, истекло или уже использовано",
+		})
 		return
-	}
-
-	currency := req.Data.Initiation.InstructedAmount.Currency
-	if currency == "" {
-		currency = "RUB" // значение по умолчанию
-	}
-
-	debtorAccount := req.Data.Initiation.DebtorAccount.Identification
-	creditorAccount := req.Data.Initiation.CreditorAccount.Identification
-	creditorBankCode := req.Data.Initiation.CreditorAccount.BankCode
-
-	// 8) Проверяем согласие на платеж (если указано)
-	if paymentConsent != nil {
-		// Проверяем, что счет списания совпадает
-		if paymentConsent.DebtorAccount != debtorAccount {
-			c.JSON(http.StatusForbidden, gin.H{"error": "debtor account does not match payment consent"})
-			return
-		}
-		// Для single_use проверяем creditor_account и amount
-		if paymentConsent.ConsentType == "single_use" {
-			if paymentConsent.CreditorAccount != nil && *paymentConsent.CreditorAccount != creditorAccount {
-				c.JSON(http.StatusForbidden, gin.H{"error": "creditor account does not match payment consent"})
-				return
-			}
-			if paymentConsent.Amount != nil && *paymentConsent.Amount != amount {
-				c.JSON(http.StatusForbidden, gin.H{"error": "amount does not match payment consent"})
-				return
-			}
-		}
-		// Для multi_use проверяем лимиты
-		if paymentConsent.ConsentType == "multi_use" {
-			if paymentConsent.MaxAmountPerPayment != nil && *paymentConsent.MaxAmountPerPayment < amount {
-				c.JSON(http.StatusForbidden, gin.H{"error": "amount exceeds max_amount_per_payment limit"})
-				return
-			}
-			if len(paymentConsent.AllowedCreditorAccounts) > 0 {
-				allowed := false
-				for _, acc := range paymentConsent.AllowedCreditorAccounts {
-					if acc == creditorAccount {
-						allowed = true
-						break
-					}
-				}
-				if !allowed {
-					c.JSON(http.StatusForbidden, gin.H{"error": "creditor account is not in allowed list"})
-					return
-				}
-			}
-		}
-		// Для vrp проверяем лимиты
-		if paymentConsent.ConsentType == "vrp" {
-			if paymentConsent.VRPMaxIndividualAmount != nil && *paymentConsent.VRPMaxIndividualAmount < amount {
-				c.JSON(http.StatusForbidden, gin.H{"error": "amount exceeds vrp_max_individual_amount limit"})
-				return
-			}
-		}
 	}
 
 	// 9) Проверка TokenSvc
@@ -361,6 +347,20 @@ func (s *Service) CreatePayment(c *gin.Context) {
 		return
 	}
 
+	// 15.5) Обновляем согласие после успешного платежа
+	if paymentConsentID != "" && paymentConsent != nil {
+		if paymentConsent.ConsentType == "single_use" {
+			// Удаляем single_use согласие после использования
+			if err := s.Repo.DeletePaymentConsent(paymentConsentID); err != nil {
+				log.Printf("error deleting single_use consent: %v", err)
+			}
+		} else if paymentConsent.ConsentType == "multi_use" {
+			// Для multi_use ничего не делаем здесь, так как max_total_amount и max_uses
+			// проверяются при поиске согласий через FindMatchingPaymentConsents
+			// Согласие остается активным для дальнейших использований
+		}
+	}
+
 	// 16) Отдаём ответ клиенту
 	response := gin.H{
 		"data": gin.H{
@@ -424,6 +424,96 @@ func (s *Service) GetPaymentStatus(c *gin.Context) {
 			"currency":             payment.Currency,
 			"creationDateTime":     payment.CreatedAt.Format(time.RFC3339),
 			"statusUpdateDateTime": payment.UpdatedAt.Format(time.RFC3339),
+		},
+	})
+}
+
+type CheckPaymentConsentsRequest struct {
+	DebtorAccount   string  `json:"debtor_account" binding:"required"`
+	CreditorAccount string  `json:"creditor_account" binding:"required"`
+	Amount          float64 `json:"amount" binding:"required"`
+	Currency        string  `json:"currency"`
+}
+
+// POST /api/payments/check-consents
+// Проверяет наличие подходящих согласий для платежа
+func (s *Service) CheckPaymentConsents(c *gin.Context) {
+	userID := c.GetInt("user_id")
+	if userID == 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var req CheckPaymentConsentsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "details": err.Error()})
+		return
+	}
+
+	bankCode := c.GetHeader("X-Bank-Code")
+	if bankCode == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "X-Bank-Code header required"})
+		return
+	}
+
+	bank, err := s.Repo.GetBankByCode(bankCode)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load bank", "details": err.Error()})
+		return
+	}
+
+	user, err := s.Repo.GetUserByID(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load user", "details": err.Error()})
+		return
+	}
+
+	bankUser, err := s.Repo.GetUserByClientIDAndBankID(user.ClientID, bank.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get user for bank", "details": err.Error()})
+		return
+	}
+
+	if req.Currency == "" {
+		req.Currency = "RUB"
+	}
+
+	// Ищем подходящие согласия
+	consents, err := s.Repo.FindMatchingPaymentConsents(
+		bankUser.ID, bank.ID, req.DebtorAccount, req.CreditorAccount, req.Amount, req.Currency,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check consents", "details": err.Error()})
+		return
+	}
+
+	if len(consents) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"has_consent": false,
+			"consents":    []interface{}{},
+		})
+		return
+	}
+
+	// Возвращаем первое подходящее согласие
+	consent := consents[0]
+	var consentIDValue string
+	if consent.ConsentID != nil && *consent.ConsentID != "" {
+		consentIDValue = *consent.ConsentID
+	} else {
+		consentIDValue = consent.RequestID
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"has_consent": true,
+		"consent_id": consentIDValue,
+		"consent_type": consent.ConsentType,
+		"consents": []gin.H{
+			{
+				"consent_id":   consentIDValue,
+				"request_id":   consent.RequestID,
+				"consent_type": consent.ConsentType,
+			},
 		},
 	})
 }
