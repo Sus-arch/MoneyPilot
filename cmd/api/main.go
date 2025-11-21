@@ -14,7 +14,7 @@ func main() {
 	defer db.Close()
 	defer redis.Close()
 
-	router := api.NewRouter(db, "secret", redis)
+	router := api.NewRouter(db, "secret", redis, cfg.CORSOrigins)
 	log.Printf("🚀 Server running on port %s\n", cfg.ServerPort)
 	router.Run(":" + cfg.ServerPort)
 }

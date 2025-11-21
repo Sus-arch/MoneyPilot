@@ -23,12 +23,17 @@ import (
 	"MoneyPilot/internal/websockets"
 )
 
-func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client) *gin.Engine {
+func NewRouter(db *sql.DB, jwtSecret string, rdb *redis.Client, corsOrigins []string) *gin.Engine {
 	r := gin.Default()
 
 	// --- Настройка CORS ---
+	// Если corsOrigins пустой, используем значение по умолчанию
+	if len(corsOrigins) == 0 {
+		corsOrigins = []string{"http://localhost:5173"}
+	}
+
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:5173"},
+		AllowOrigins:     corsOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Bank-Code", "X-Payment-Consent-Id", "X-Fapi-Interaction-Id", "X-Fapi-Customer-Ip-Address"},
 		ExposeHeaders:    []string{"Content-Length"},

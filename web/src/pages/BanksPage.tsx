@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
-import { post, del, get, clearCache } from "../api/client";
+import { post, del, get, clearCache, getWebSocketUrl } from "../api/client";
 import {
   Loader2,
   Banknote,
@@ -247,7 +247,7 @@ export default function BanksPage() {
   const connectWebSocket = (bankId: string, consentId?: string, requestId?: string, consentType?: "payment" | "product") => {
     if (wsRef.current) wsRef.current.close();
 
-    const socket = new WebSocket("ws://localhost:8080/ws");
+    const socket = new WebSocket(getWebSocketUrl());
     wsRef.current = socket;
     activeBankRef.current = bankId;
     if (consentId) activeConsentIdRef.current = consentId;

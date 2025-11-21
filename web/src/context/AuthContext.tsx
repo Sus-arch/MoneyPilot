@@ -1,7 +1,7 @@
 import { createContext, useState, useContext, useRef } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { post } from "../api/client";
+import { post, getWebSocketUrl } from "../api/client";
 
 interface AuthContextType {
   token: string | null;
@@ -66,7 +66,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     // 4️⃣ Иначе — подключаем WebSocket для ожидания ручного согласия
     if (wsRef.current) wsRef.current.close();
-    const socket = new WebSocket("ws://localhost:8080/ws");
+    const socket = new WebSocket(getWebSocketUrl());
     wsRef.current = socket;
     activeBankRef.current = bank;
 

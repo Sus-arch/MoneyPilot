@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
-import { post, get } from "../api/client";
+import { post, get, getWebSocketUrl } from "../api/client";
 import {
   Loader2,
   CheckCircle,
@@ -157,7 +157,7 @@ export default function PaymentsPage() {
   const connectWebSocket = (bankId: string, consentId?: string, requestId?: string) => {
     if (wsRef.current) wsRef.current.close();
 
-    const socket = new WebSocket("ws://localhost:8080/ws");
+    const socket = new WebSocket(getWebSocketUrl());
     wsRef.current = socket;
     activeBankRef.current = bankId;
     if (consentId) activeConsentIdRef.current = consentId;

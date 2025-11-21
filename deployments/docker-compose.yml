@@ -36,6 +36,10 @@ services:
     build:
       context: ../web
       dockerfile: Dockerfile.react
+      args:
+        # Передаем переменные окружения на этап сборки
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8080}
+        VITE_WS_URL: ${VITE_WS_URL:-}
     container_name: money-web
     ports:
       - "5173:5173"
