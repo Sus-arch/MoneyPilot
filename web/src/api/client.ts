@@ -1,5 +1,14 @@
 // @ts-ignore - Vite types are available but TypeScript may not recognize them
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8080";
+// @ts-ignore
+const WS_URL = import.meta.env.VITE_WS_URL || (() => {
+  // Если WS_URL не указан, пытаемся вывести из API_URL
+  const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:8080";
+  // Заменяем http:// на ws:// и https:// на wss://, затем добавляем /ws
+  return apiUrl.replace(/^https?:\/\//, (match: string) => {
+    return match === "https://" ? "wss://" : "ws://";
+  }) + "/ws";
+})();
 
 type Headers = Record<string, string>;
 
@@ -205,4 +214,9 @@ export function debouncedGet<T = any>(
     
     debounceTimers.set(cacheKey, timer);
   });
+}
+
+// Экспортируем WebSocket URL для использования в других компонентах
+export function getWebSocketUrl(): string {
+  return WS_URL;
 }

@@ -1,4 +1,5 @@
 import asyncio
+import os
 from fastapi import FastAPI, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
@@ -13,9 +14,13 @@ from services.go_api_client import GoApiClient
 
 app = FastAPI(title="FinBalance ML Engine")
 
+# Получаем CORS origins из переменной окружения или используем значение по умолчанию
+cors_origins_env = os.getenv("CORS_ORIGINS", "http://localhost:5173")
+cors_origins = [origin.strip() for origin in cors_origins_env.split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # адрес вашего фронта
+    allow_origins=cors_origins,  # адрес вашего фронта
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
