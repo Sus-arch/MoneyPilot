@@ -2,7 +2,7 @@ from typing import List, Dict, Tuple
 import pandas as pd
 from prophet import Prophet
 
-from core.can_afford.process_transactions import process_transactions
+from core.utils.process_transactions import process_transactions
 
 
 def calculate_forecast(transactions: List[Dict]) -> Tuple[float, float]:

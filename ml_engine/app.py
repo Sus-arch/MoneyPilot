@@ -2,15 +2,13 @@ import asyncio
 from fastapi import FastAPI, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from prophet import Prophet
-import pandas as pd
 
 from core.advisor import generate_advice
-from core.can_afford.calculate_forecast import calculate_forecast
+
+from core.utils.calculate_forecast import calculate_forecast
 from core.can_afford.can_afford_rule import can_afford_rule
-from core.can_afford.process_transactions import process_transactions
 from services.go_api_client import GoApiClient
 
 app = FastAPI(title="FinBalance ML Engine")
